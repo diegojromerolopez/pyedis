@@ -1,7 +1,8 @@
 # `pyedis` - Native Redis RESP Key-Value Store in Python 3.14
 
 > [!NOTE]
-> `pyedis` is an autonomous software project built with **[Noctifab](https://github.com/diegojromerolopez/noctifab)**—the dark factory AI software development orchestrator.
+> `pyedis` is a software project built autonomously with **[Noctifab](https://github.com/diegojromerolopez/noctifab)**—the dark factory AI software development orchestrator.
+> The starting point of the project, before running Noctifab on it, is commit [`98c130f`](https://github.com/diegojromerolopez/pyedis/commit/98c130f).
 
 `pyedis` is a high-performance, in-memory key-value store with a **native Redis wire-protocol (RESP2/RESP3) API exposed over TCP** (default port `6379`), written in modern Python (3.14 / 3.10+) with strict static typing (`mypy --strict src`) and standard library tooling. It mirrors Redis core command semantics (`PING`, `ECHO`, `QUIT`, `SET`, `GET`, `DEL`, `EXISTS`, `INCR`, `DECR`, `EXPIRE`, `TTL`, `KEYS`, `FLUSHALL`) with deterministic RESP reply and error envelopes, and persists state to an append-only file (AOF) using absolute expiration timestamps so data and TTLs survive process restarts and sudden terminations (`SIGKILL`). Standard Redis client utilities (`redis-cli`, `redis-py` v5+) are 100% compatible with `pyedis`.
 
