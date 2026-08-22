@@ -46,8 +46,21 @@ agents:
     - name: opencode
     - name: openrouter
   qa:
-    enabled: false
+    enabled: true
     iterations: 2
+    max_duration: 2m
+    max_scenarios: 8
+    max_review_rounds: 2
+    max_output_bytes: 65536
+    blocking: true
+    network: "none"
+    build_command:
+    - make
+    - run
+    validation_commands:
+    - tests/e2e/run_tests.sh
+    tester_path_prefixes:
+    - tests/
     providers:
     - name: gemini-flash
     - name: claude
