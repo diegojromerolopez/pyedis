@@ -1,0 +1,5 @@
+data/noctifab.db
+logs/
+worktrees/
+noctifab.pid
+secrets.yaml

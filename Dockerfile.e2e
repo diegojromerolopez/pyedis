@@ -1,0 +1,13 @@
+FROM alpine:3.21
+
+# Install Python 3, pip, make, redis (for redis-cli), bash, and curl
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    make \
+    redis \
+    bash \
+    curl \
+    git
+
+WORKDIR /app
