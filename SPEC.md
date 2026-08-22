@@ -20,6 +20,7 @@
 3. **Deterministic Dependency Injection:** The in-memory store accepts an injected `Clock` callable (`Callable[[], float]`), allowing unit tests to freeze, step, and fast-forward time deterministically without `sleep()` delays.
 4. **Absolute Expiration Durability:** AOF records store absolute Unix epoch timestamps (`expire_at`), ensuring expired keys are never resurrected across server reboots.
 5. **Strict Typing & Zero Linter Warnings:** Full PEP 585 built-in generic collections (`dict`, `list`, `tuple`, `set`). Must pass `ruff check src tests` and `mypy --strict src` with zero findings.
+6. **500-Line Limit Rule:** No single Python source file (`.py`) may exceed 500 lines of code.
 
 ---
 
@@ -66,14 +67,180 @@ pyedis/
 
 ---
 
-## 3. Toolchain, Invocation, Exit Codes & Configuration
+## 3. Explicit Public API Signatures & Architectural Contracts
 
-### 3.1 Runtime & Dev Dependencies
-- **Runtime:** Standard Python 3.14+ library (`asyncio`, `dataclass`, `os`, `sys`, `time`, `typing`, `pathlib`, `json`, `signal`). No external web frameworks.
+### 3.1 Protocol Module (`src/resp.py`)
+```python
+"""RESP wire protocol encoder and streaming decoder."""
+from typing import Any
+
+def encode_simple_string(s: str) -> bytes:
+    """Encodes a string as a RESP Simple String (+<string>\r\n)."""
+    ...
+
+def encode_error(msg: str, err_type: str = "ERR") -> bytes:
+    """Encodes an error as a RESP Error (-<TYPE> <msg>\r\n)."""
+    ...
+
+def encode_integer(n: int) -> bytes:
+    """Encodes an integer as a RESP Integer (:<number>\r\n)."""
+    ...
+
+def encode_bulk_string(data: bytes | str | None) -> bytes:
+    """Encodes bytes/string as a RESP Bulk String ($<len>\r\n<data>\r\n or $-1\r\n for None)."""
+    ...
+
+def encode_array(items: list[Any] | None) -> bytes:
+    """Encodes a list as a RESP Array (*<count>\r\n<elem1>... or *-1\r\n for None)."""
+    ...
+
+def encode_resp(value: Any) -> bytes:
+    """Polymorphic RESP serializer mapping Python types to RESP byte frames."""
+    ...
+
+def decode_resp_stream(buffer: bytearray) -> tuple[list[list[bytes]], bytearray]:
+    """
+    Parses all complete RESP commands (multi-bulk arrays and inline commands) from the buffer.
+    Returns (parsed_commands, unparsed_remaining_bytes).
+    Does not raise on partial buffers; partial frames remain in unparsed_remaining_bytes.
+    """
+    ...
+```
+
+### 3.2 In-Memory Store Module (`src/store.py`)
+```python
+"""In-memory key-value storage with active/lazy expiration and injected clock."""
+import asyncio
+import time
+from collections.abc import Callable
+
+Clock = Callable[[], float]
+
+class Store:
+    def __init__(self, clock: Clock = time.time) -> None:
+        self._data: dict[str, str] = {}
+        self._expires: dict[str, float] = {}  # key -> absolute unix epoch expiration
+        self._clock: Clock = clock
+        self._lock: asyncio.Lock = asyncio.Lock()
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        return self._lock
+
+    def get(self, key: str) -> str | None:
+        """Retrieves key value, lazily evicting if expired."""
+        ...
+
+    def set(self, key: str, value: str, expire_at: float | None = None,
+            nx: bool = False, xx: bool = False) -> bool:
+        """Sets key value with optional absolute expiration and existence conditions."""
+        ...
+
+    def delete(self, *keys: str) -> int:
+        """Deletes keys, returning count of existing keys deleted."""
+        ...
+
+    def exists(self, *keys: str) -> int:
+        """Returns count of existing keys among arguments."""
+        ...
+
+    def incr_by(self, key: str, delta: int) -> int:
+        """Increments key integer value by delta, initializing to '0' if missing. Preserves TTL."""
+        ...
+
+    def expire(self, key: str, seconds: float) -> bool:
+        """Sets TTL on key in seconds from current clock. If seconds <= 0, deletes key immediately."""
+        ...
+
+    def ttl(self, key: str) -> int:
+        """Returns -2 (missing/expired), -1 (exists no TTL), or positive remaining seconds."""
+        ...
+
+    def keys(self, pattern: str) -> list[str]:
+        """Performs active sweep, then returns all keys matching glob pattern (*, ?, [abc])."""
+        ...
+
+    def flushall(self) -> None:
+        """Clears all keys and expirations."""
+        ...
+```
+
+### 3.3 Persistence Module (`src/persistence.py`)
+```python
+"""Append-Only File (AOF) durability engine with absolute timestamps."""
+from pathlib import Path
+from src.store import Store
+
+class AOFLogger:
+    def __init__(self, filepath: str | Path, fsync: bool = True) -> None:
+        self.filepath: Path = Path(filepath)
+        self.fsync: bool = fsync
+        ...
+
+    def log_mutation(self, record: dict[str, Any]) -> None:
+        """Appends JSON line mutation to dump.aof and calls os.fsync if enabled."""
+        ...
+
+    def truncate(self) -> None:
+        """Truncates dump.aof to 0 bytes on disk (FLUSHALL)."""
+        ...
+
+def replay_aof(filepath: str | Path, store: Store) -> int:
+    """
+    Sequentially replays dump.aof into store.
+    Tolerates truncated/corrupt trailing line caused by abrupt crash (SIGKILL).
+    Returns count of successfully replayed records.
+    """
+    ...
+```
+
+### 3.4 Command Dispatcher Module (`src/commands.py`)
+```python
+"""Command validation, execution routing, and RESP envelope generation."""
+from src.store import Store
+from src.persistence import AOFLogger
+
+class CommandDispatcher:
+    def __init__(self, store: Store, aof: AOFLogger | None = None) -> None:
+        self.store: Store = store
+        self.aof: AOFLogger | None = aof
+
+    async def dispatch(self, args: list[bytes]) -> tuple[bytes, bool]:
+        """
+        Validates syntax/arity, routes command (case-insensitively), performs mutation,
+        logs to AOF, and returns (resp_reply_bytes, should_close_connection).
+        """
+        ...
+```
+
+### 3.5 Server Entrypoint Module (`src/main.py`)
+```python
+"""Asyncio TCP server entrypoint and graceful signal handling."""
+import asyncio
+
+async def run_server(host: str = "0.0.0.0", port: int = 6379,
+                       data_dir: str = "./data", fsync: bool = True) -> None:
+    """Starts TCP server loop, replays AOF, and listens for client connections."""
+    ...
+
+def main() -> None:
+    """CLI entrypoint reading PORT, PYEDIS_DATA_DIR, PYEDIS_AOF_FSYNC from environment."""
+    ...
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+## 4. Toolchain, Invocation, Exit Codes & Configuration
+
+### 4.1 Runtime & Dev Dependencies
+- **Runtime:** Standard Python 3.14+ library (`asyncio`, `dataclass`, `os`, `sys`, `time`, `typing`, `pathlib`, `json`, `signal`, `fnmatch`). No external web frameworks.
 - **Dev:** `redis>=5.0`, `ruff>=0.8`, `mypy>=1.13`, `coverage>=7.6`. (NO `pytest`).
 - **Testing Framework Rule (MANDATORY):** Tests MUST NOT use `pytest` or any third-party test framework under any circumstances. All unit and integration tests MUST be written using Python's standard library `unittest` framework (using `unittest.TestCase`, `unittest.IsolatedAsyncioTestCase` for async tests, and `unittest.mock`). All test modules must be executable via `python3 -m unittest discover -s tests`.
 
-### 3.2 Makefile Targets
+### 4.2 Makefile Targets
 Every target below is REQUIRED and must be defined cleanly:
 - `make install` → `python3 -m pip install -e ".[dev]"` (or `pip install -r requirements.txt`).
 - `make run` → `python3 -m src.main`.
@@ -82,23 +249,23 @@ Every target below is REQUIRED and must be defined cleanly:
 - `make format` → `ruff format src tests` (idempotent code formatting).
 - `make e2e` → `docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from test-runner-e2e` (or host `./tests/e2e/run_tests.sh`).
 
-### 3.3 Configuration Environment Variables
+### 4.3 Configuration Environment Variables
 - `PORT` (default `6379`): TCP listen port for the RESP server.
 - `PYEDIS_DATA_DIR` (default `./data`): Directory holding the `dump.aof` file.
 - `PYEDIS_AOF_FSYNC` (default `true`): If `true`, calls `os.fsync` on the open AOF file descriptor after every state mutation before sending the RESP reply.
 
-### 3.4 Exit Codes & Logging
+### 4.4 Exit Codes & Logging
 - **Clean Shutdown (`SIGINT`/`SIGTERM`):** Server flushes open files, closes the TCP server socket, disconnects clients, and exits `0`.
 - **Fatal Startup Error (e.g. port bound, uncreatable directory):** Log `pyedis: <reason>` to stderr and exit `1`.
 - **Operational Diagnostic Logging:** All operational logs on stdout/stderr MUST use the prefix `pyedis: `.
 
 ---
 
-## 4. RESP Wire Protocol & Framing Engine
+## 5. RESP Wire Protocol & Framing Engine
 
 `pyedis` communicates exclusively via standard REdis Serialization Protocol (RESP2/RESP3) over TCP.
 
-### 4.1 RESP Frame Types & Wire Envelopes
+### 5.1 RESP Frame Types & Wire Envelopes
 
 | Frame Type | Byte Prefix | Wire Format | Example Wire Bytes | Decoded Representation |
 | :--- | :---: | :--- | :--- | :--- |
@@ -111,7 +278,7 @@ Every target below is REQUIRED and must be defined cleanly:
 | **Empty Array** | `*` | `*0\r\n` | `*0\r\n` | `[]` (empty list) |
 | **Null Array** | `*` | `*-1\r\n` | `*-1\r\n` | `None` (nil array) |
 
-### 4.2 Stream Parsing, Fragmentation, Pipelining & Inline Commands
+### 5.2 Stream Parsing, Fragmentation, Pipelining & Inline Commands
 1. **TCP Stream Buffering & Chunking:** TCP provides a continuous stream with no packet boundary guarantees. The RESP decoder must accumulate incoming chunks in a stream buffer and yield parsed commands only when complete payloads (matching byte lengths and terminating `\r\n`) are received. Incomplete frames must remain buffered without blocking or crashing.
 2. **Command Pipelining:** Clients may send multiple concatenated RESP commands in a single TCP read buffer. The server must process all commands sequentially in FIFO order and return all RESP replies in matching order without dropping or interleaving frames.
 3. **Multi-Bulk Arrays vs. Inline Commands:**
@@ -122,7 +289,7 @@ Every target below is REQUIRED and must be defined cleanly:
 
 ---
 
-## 5. Supported Commands & Parity Semantics
+## 6. Supported Commands & Parity Semantics
 
 | Command | Signature & Description | Success RESP Reply | Error RESP Reply |
 | :--- | :--- | :--- | :--- |
@@ -144,16 +311,16 @@ Every target below is REQUIRED and must be defined cleanly:
 | `CLIENT` | `CLIENT SETNAME\|GETNAME`<br>Driver handshake. | `+OK\r\n` | None |
 | *Unknown* | Any unrecognized command `<NAME>` | None | `-ERR unknown command '<NAME>'\r\n` |
 
-### 5.1 Special Semantics & Edge Cases
+### 6.1 Special Semantics & Edge Cases
 1. **`SET` Overwrite Behavior:** Overwriting a key with `SET key new_val` (without `EX`/`PX`) clears any existing expiration on that key, making it persistent (`TTL` becomes `-1`).
-2. **`SET` Duration Bounds:** `EX` requires positive integer seconds; `PX` requires positive integer milliseconds. If duration $\le 0$, return `-ERR value is not an integer or out of range\r\n`.
+2. **`SET` Duration Bounds & Flag Order:** `EX` requires positive integer seconds; `PX` requires positive integer milliseconds. If duration $\le 0$, return `-ERR value is not an integer or out of range\r\n`. Flag ordering must be flexible (e.g. `SET k v EX 10 NX` and `SET k v NX EX 10` are both valid).
 3. **`INCR`/`DECR` Initial Value & TTL:** If the key does not exist, it is initialized to `"0"` prior to modification (becoming `1` or `-1`). If the key already has an expiration, that expiration timestamp MUST be preserved after `INCR`/`DECR`.
 4. **`EXPIRE` Non-Positive Durations:** If `EXPIRE key seconds` is called with `seconds <= 0`, the key MUST be deleted immediately. Returns `:1\r\n` if the key existed, `:0\r\n` otherwise.
 5. **Connection Negotiation Commands:** Modern Redis drivers (`redis-py` v5+) automatically issue `COMMAND`, `INFO`, or `CLIENT SETNAME` on connection. Returning `*0\r\n` or `+OK\r\n` satisfies the handshake cleanly without erroring out.
 
 ---
 
-## 6. Store Semantics & Expiration Engine
+## 7. Store Semantics & Expiration Engine
 
 1. **Storage Structure:** In-memory dictionary mapping UTF-8 string keys to string values, paired with an expiration map tracking absolute expiration timestamps (Unix epoch seconds as `float`).
 2. **Deterministic Time Injection:** The `Store` accepts a `Clock` callable (`Callable[[], float]`, default `time.time`) via dependency injection. All TTL calculations, expiration comparisons, and AOF timestamp creations MUST use this clock.
@@ -164,11 +331,11 @@ Every target below is REQUIRED and must be defined cleanly:
 
 ---
 
-## 7. Persistence Architecture (AOF Engine)
+## 8. Persistence Architecture (AOF Engine)
 
 `pyedis` implements an Append-Only File (AOF) durability engine to ensure zero data loss across restarts.
 
-### 7.1 AOF Record Schema
+### 8.1 AOF Record Schema
 Every state-modifying mutation (`SET`, `DEL`, `INCR`, `DECR`, `EXPIRE`, `FLUSHALL`) appends exactly one JSON line to `<PYEDIS_DATA_DIR>/dump.aof`:
 - `{"op":"SET","key":"<k>","value":"<v>","expire_at":<timestamp_float_or_null>}`
 - `{"op":"DEL","key":"<k>"}`
@@ -179,7 +346,7 @@ Every state-modifying mutation (`SET`, `DEL`, `INCR`, `DECR`, `EXPIRE`, `FLUSHAL
 > [!IMPORTANT]
 > **Absolute Expiration Invariant:** Expirations stored in `dump.aof` MUST use absolute Unix epoch timestamps (`expire_at`), NOT relative durations. When replaying the AOF on startup, keys whose `expire_at` has already passed are immediately evicted and not revived with fresh lifetimes.
 
-### 7.2 Fsync & Startup Replay
+### 8.2 Fsync & Startup Replay
 1. **Fsync Guarantee:** When `PYEDIS_AOF_FSYNC=true` (default), the server calls `os.fsync()` on the open file descriptor after writing each mutation before transmitting the RESP reply.
 2. **Startup Replay:** On server initialization, if `dump.aof` exists in `PYEDIS_DATA_DIR`, lines are replayed sequentially into the store.
 3. **Crash Recovery & Corrupt Trailing Line Tolerance:** If the server terminated abruptly (`SIGKILL`) during a write, the final line in `dump.aof` may be truncated. The replay engine MUST log `pyedis: ignoring corrupt trailing AOF line` and load all preceding valid lines.
@@ -187,19 +354,41 @@ Every state-modifying mutation (`SET`, `DEL`, `INCR`, `DECR`, `EXPIRE`, `FLUSHAL
 
 ---
 
-## 8. Conformance & Verification Test Matrix
+## 9. Phased Implementation & User Story Roadmap
+
+To ensure high modularity and clean verification gates during autonomous Noctifab execution, the development roadmap decomposes into 5 sequential phases:
+
+```
+Phase 1: Toolchain, Packaging & RESP Framing Engine (src/resp.py, tests/unit/test_resp.py)
+   │
+   ▼
+Phase 2: In-Memory Store & Clock DI Expiration Engine (src/store.py, tests/unit/test_store.py)
+   │
+   ▼
+Phase 3: Command Router & Redis Parity Handlers (src/commands.py, tests/unit/test_commands.py)
+   │
+   ▼
+Phase 4: AOF Durability & Startup Replay Engine (src/persistence.py, tests/unit/test_persistence.py)
+   │
+   ▼
+Phase 5: Async TCP Server, Concurrency & E2E Integration Suite (src/main.py, tests/integration/test_server.py, docs/)
+```
+
+---
+
+## 10. Conformance & Verification Test Matrix
 
 > [!IMPORTANT]
 > **Standard Library `unittest` Conformance Requirement:**
 > All test modules must subclass `unittest.TestCase` (or `unittest.IsolatedAsyncioTestCase`) and run via `python3 -m unittest discover -s tests -v`. Do NOT import or reference `pytest` anywhere.
 
-### 8.1 Unit Tests (`tests/unit/`)
+### 10.1 Unit Tests (`tests/unit/`)
 - **`test_resp.py` (`unittest.TestCase`):** Tests encoding and decoding of all RESP types, partial chunk reassembly, pipelined buffers, inline commands, and binary safety.
 - **`test_store.py` (`unittest.TestCase`):** Tests set, get, del, incr, decr, ttl, active sweep, and lazy eviction using an injected mock clock.
 - **`test_commands.py` (`unittest.TestCase`):** Tests arity checking, unknown commands, case-insensitivity, syntax errors, `NX`/`XX`, and `EX`/`PX`.
 - **`test_persistence.py` (`unittest.TestCase`):** Tests AOF append, startup replay, absolute expiration replay, corrupted trailing line tolerance, and `FLUSHALL` truncation.
 
-### 8.2 Integration Tests (`tests/integration/`)
+### 10.2 Integration Tests (`tests/integration/`)
 - **`test_server.py` (`unittest.IsolatedAsyncioTestCase`):** Spins up a live `pyedis` TCP server on an ephemeral port.
   - Raw socket interactions.
   - Full official `redis-py` (v5+) command test suite.
@@ -207,15 +396,15 @@ Every state-modifying mutation (`SET`, `DEL`, `INCR`, `DECR`, `EXPIRE`, `FLUSHAL
   - Concurrent load (50 concurrent async tasks hammering `INCR`).
   - Server restart durability verification.
 
-### 8.3 Black-Box E2E Tests (`tests/e2e/`)
+### 10.3 Black-Box E2E Tests (`tests/e2e/`)
 - **`run_tests.sh` & `docker-compose.e2e.yml`:** Executes black-box `redis-cli` assertions against a live running container or host instance, verifying identical behavior to official Redis 7.x.
 
-### 8.4 Coverage Gate
+### 10.4 Coverage Gate
 Total test coverage of `src/` must be $\ge 95\%$ lines (`coverage run -m unittest discover -s tests && coverage report`).
 
 ---
 
-## 9. Documentation Requirements
+## 11. Documentation Requirements
 
 1. **`README.md`**: Must exist at root level documenting: installation, running the server, the full command API table, RESP wire format envelopes, AOF format, `make test`/`lint`/`e2e`, and `redis-cli` usage examples.
 2. **`docs/` Folder**: Must contain documentation in Read the Docs format (`docs/index.md`, `docs/api.md`) covering Architecture, Protocol Reference, Store & Expiration Engine, Persistence, and Deployment.
@@ -223,7 +412,7 @@ Total test coverage of `src/` must be $\ge 95\%$ lines (`coverage run -m unittes
 
 ---
 
-## 10. Definition of Done (DoD)
+## 12. Definition of Done (DoD)
 
 To consider `pyedis` fully implemented, the project must satisfy:
 1. **Public RESP API & CLI Compatibility:** Native Redis RESP2/RESP3 wire-protocol TCP server operating on port 6379, passing all command assertions via official `redis-cli` and `redis-py` (v5+).
