@@ -169,6 +169,7 @@ class Store:
 ```python
 """Append-Only File (AOF) durability engine with absolute timestamps."""
 from pathlib import Path
+from typing import Any
 from src.store import Store
 
 class AOFLogger:
@@ -247,7 +248,7 @@ Every target below is REQUIRED and must be defined cleanly:
 - `make test` → `python3 -m unittest discover -s tests -v` (runs unit + integration suites via standard library `unittest`; zero failures allowed; zero `pytest` usage).
 - `make lint` → `ruff check src tests` AND `mypy --strict src` — both must pass with zero findings.
 - `make format` → `ruff format src tests` (idempotent code formatting).
-- `make e2e` → `docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from test-runner-e2e` (or host `./tests/e2e/run_tests.sh`).
+- `make e2e` → `docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from test-runner-e2e`. Note: All E2E testing tools (including `redis-cli`) run strictly inside the containerized test runner service; NO host system package installation (such as host `redis-cli`) is required.
 
 ### 4.3 Configuration Environment Variables
 - `PORT` (default `6379`): TCP listen port for the RESP server.
@@ -371,7 +372,7 @@ Phase 3: Command Router & Redis Parity Handlers (src/commands.py, tests/unit/tes
 Phase 4: AOF Durability & Startup Replay Engine (src/persistence.py, tests/unit/test_persistence.py)
    │
    ▼
-Phase 5: Async TCP Server, Concurrency & E2E Integration Suite (src/main.py, tests/integration/test_server.py, docs/)
+Phase 5: Async TCP Server, Concurrency & E2E Integration Suite (src/main.py, tests/integration/test_server.py, tests/e2e/run_tests.sh, docs/)
 ```
 
 ---
@@ -397,7 +398,11 @@ Phase 5: Async TCP Server, Concurrency & E2E Integration Suite (src/main.py, tes
   - Server restart durability verification.
 
 ### 10.3 Black-Box E2E Tests (`tests/e2e/`)
-- **`run_tests.sh` & `docker-compose.e2e.yml`:** Executes black-box `redis-cli` assertions against a live running container or host instance, verifying identical behavior to official Redis 7.x.
+- **Containerized Dual-Service Architecture (`docker-compose.e2e.yml`):** The E2E test suite executes exclusively within isolated Docker containers. `docker-compose.e2e.yml` is composed of exactly two services:
+  1. **The Service (`pyedis-server`):** Runs the asynchronous Python `pyedis` server.
+  2. **The Test Runner (`test-runner-e2e`):** An Alpine-based container containing Python, Bash, and Redis tools (`redis-cli`) that waits for `pyedis-server` healthiness and executes `tests/e2e/run_tests.sh`.
+- **Zero Host Package Requirement:** NO system packages (specifically `redis-cli`) are required to be installed on the host machine. All black-box CLI assertions run strictly inside the test runner container.
+- **Parametrized Host & Port:** `tests/e2e/run_tests.sh` MUST parameterize target host and port via environment variables `REDIS_HOST` (default `127.0.0.1`) and `REDIS_PORT` (default `6379`), making it directly executable inside `test-runner-e2e` (`REDIS_HOST=pyedis-server`) as well as on any local setup with zero modification.
 
 ### 10.4 Coverage Gate
 Total test coverage of `src/` must be $\ge 95\%$ lines (`coverage run -m unittest discover -s tests && coverage report`).

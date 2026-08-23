@@ -56,9 +56,11 @@ agents:
     network: "none"
     build_command:
     - make
-    - run
+    - install
     validation_commands:
     - tests/e2e/run_tests.sh
+    - make
+    - python3
     tester_path_prefixes:
     - tests/
     providers:
@@ -74,9 +76,11 @@ agents:
     enabled: true
     model: claude-sonnet-5
     temperature: 0.0
-    iterations: 2
     max_turns: 2
     timeout: 5m
+    allow_spec_mutation: true
+    allow_scope_reduction: true
+    enforce_spec_quality: true
     providers:
     - name: claude
     - name: gemini
@@ -249,8 +253,8 @@ sandbox:
   - which
 runtime:
   spec_source: ''
-  max_actions: 100
-  max_duration: 30m
+  max_actions: 250
+  max_duration: 2h
   max_silent_stall_duration: 30m
   max_tokens_per_story: 2000000
   max_tokens_per_task: 500000
