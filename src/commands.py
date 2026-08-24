@@ -27,12 +27,65 @@ class CommandDispatcher:
             return encode_bulk_string(val)
 
         elif cmd_str == "set":
-            if len(args) != 3:
+            if len(args) < 3:
                 return encode_error("ERR wrong number of arguments for 'set' command")
             key = args[1].decode("utf-8")
             val = args[2].decode("utf-8")
-            await self.store.set(key, val)
-            return encode_simple_string("OK")
+            ex: int | float | None = None
+            px: int | float | None = None
+            nx = False
+            xx = False
+
+            i = 3
+            while i < len(args):
+                opt = args[i].decode("utf-8").upper()
+                if opt == "EX" and i + 1 < len(args):
+                    try:
+                        ex = int(args[i + 1].decode("utf-8"))
+                    except ValueError:
+                        return encode_error(
+                            "ERR value is not an integer or out of range"
+                        )
+                    i += 2
+                elif opt == "PX" and i + 1 < len(args):
+                    try:
+                        px = int(args[i + 1].decode("utf-8"))
+                    except ValueError:
+                        return encode_error(
+                            "ERR value is not an integer or out of range"
+                        )
+                    i += 2
+                elif opt == "NX":
+                    nx = True
+                    i += 1
+                elif opt == "XX":
+                    xx = True
+                    i += 1
+                else:
+                    return encode_error("ERR syntax error")
+
+            success = await self.store.set(key, val, ex=ex, px=px, nx=nx, xx=xx)
+            if success:
+                return encode_simple_string("OK")
+            return encode_bulk_string(None)
+
+        elif cmd_str == "incr":
+            if len(args) != 2:
+                return encode_error("ERR wrong number of arguments for 'incr' command")
+            key = args[1].decode("utf-8")
+            val, err = await self.store.incr_by(key, 1)
+            if err:
+                return encode_error(err)
+            return encode_integer(val if val is not None else 0)
+
+        elif cmd_str == "decr":
+            if len(args) != 2:
+                return encode_error("ERR wrong number of arguments for 'decr' command")
+            key = args[1].decode("utf-8")
+            val, err = await self.store.incr_by(key, -1)
+            if err:
+                return encode_error(err)
+            return encode_integer(val if val is not None else 0)
 
         elif cmd_str == "del":
             if len(args) < 2:
