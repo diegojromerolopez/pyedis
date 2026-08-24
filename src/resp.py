@@ -41,11 +41,11 @@ class RESPIncompleteError(Exception):
 
 # Encoders
 def encode_simple_string(val: str) -> bytes:
-    return f"+{val}\r\n".encode("utf-8")
+    return f"+{val}\r\n".encode()
 
 
 def encode_error(val: str) -> bytes:
-    return f"-{val}\r\n".encode("utf-8")
+    return f"-{val}\r\n".encode()
 
 
 def encode_integer(val: int) -> bytes:
