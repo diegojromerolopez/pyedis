@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# pyedis runtime data (keep directory, ignore AOF/pid files)
+data/*.aof
+data/*.pid
+data/*.db
+NOCTIFAB_REPORT.md
+roadmap/
