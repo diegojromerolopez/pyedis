@@ -28,14 +28,17 @@
 
 ```
 pyedis/
+├── .github/
+│   └── workflows/
+│       └── ci.yml            # GitHub Actions CI workflow (triggers on every push; runs lint, unit, e2e)
 ├── pyproject.toml            # PEP 621 metadata; deps, [tool.mypy], [tool.ruff] (NO pytest)
 ├── requirements.txt          # Pinned runtime + dev dependencies (NO pytest)
 ├── Makefile                  # install, run, test, lint, format, e2e targets
-├── README.md                 # Project overview, command reference, usage, e2e guide
+├── README.md                 # Project overview, installation, use cases, command ref, Redis compatibility
 ├── .readthedocs.yaml         # Read the Docs configuration file
 ├── docs/                     # Read the Docs documentation directory
-│   ├── index.md              # Documentation entry point & overview
-│   └── api.md                # Command API, RESP protocol specification, architecture
+│   ├── index.md              # Documentation entry point, installation, use cases & architecture
+│   └── api.md                # Supported operations, RESP protocol specification, Redis compatibility level
 ├── .gitignore                # Ignores __pycache__/, .venv/, data/, .coverage, htmlcov/
 ├── Dockerfile.e2e            # Alpine-based container for black-box E2E validation
 ├── docker-compose.e2e.yml    # Black-box E2E multi-container test harness
@@ -260,6 +263,17 @@ Every target below is REQUIRED and must be defined cleanly:
 - **Fatal Startup Error (e.g. port bound, uncreatable directory):** Log `pyedis: <reason>` to stderr and exit `1`.
 - **Operational Diagnostic Logging:** All operational logs on stdout/stderr MUST use the prefix `pyedis: `.
 
+### 4.5 Continuous Integration (`.github/workflows/ci.yml`)
+A GitHub Actions CI workflow MUST be configured in `.github/workflows/ci.yml` that:
+- **Trigger Strategy:** Executes automatically on **every push** to any branch (`on: push`) as well as on all pull requests (`on: pull_request`).
+- **Automated Verification Pipeline:**
+  1. **Checkout & Python Setup:** Checks out the codebase and provisions Python (3.12+ / 3.14).
+  2. **Dependency Installation:** Installs runtime and development dependencies cleanly (`make install` or `pip install -r requirements.txt`).
+  3. **Lint & Static Type Verification:** Executes `make lint` (`ruff check src tests` and `mypy --strict src`), requiring zero findings.
+  4. **Unit & Integration Test Execution:** Executes `make test` (`python3 -m unittest discover -s tests -v`), verifying all unit and integration test suites pass with 100% success rate.
+  5. **Containerized E2E Black-Box Test Execution:** Executes `make e2e` (`docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from test-runner-e2e`), ensuring the end-to-end black-box CLI test suite against the live containerized server succeeds completely.
+- **Mandatory Pipeline Gate:** Linters, unit/integration tests, and containerized E2E black-box tests MUST all run and succeed with exit code 0 on every push for CI to pass.
+
 ---
 
 ## 5. RESP Wire Protocol & Framing Engine
@@ -372,8 +386,13 @@ Phase 3: Command Router & Redis Parity Handlers (src/commands.py, tests/unit/tes
 Phase 4: AOF Durability & Startup Replay Engine (src/persistence.py, tests/unit/test_persistence.py)
    │
    ▼
-Phase 5: Async TCP Server, Concurrency & E2E Integration Suite (src/main.py, tests/integration/test_server.py, tests/e2e/run_tests.sh, docs/)
+Phase 5: Async TCP Server, Concurrency, Documentation & CI Integration Suite (src/main.py, tests/integration/test_server.py, tests/e2e/run_tests.sh, README.md, docs/, .readthedocs.yaml, .github/workflows/ci.yml)
 ```
+
+- **Phase 5 Documentation & CI Mandate for Generators:**
+  - Generators MUST implement the async TCP server and complete integration/E2E test suite.
+  - Generators MUST author the complete, comprehensive documentation suite (`README.md`, `docs/index.md`, `docs/api.md`, `.readthedocs.yaml`) detailing installation, usage, use cases, supported operations reference, and the precise level of Redis compatibility.
+  - Generators MUST verify that the GitHub Actions CI pipeline (`.github/workflows/ci.yml`) runs linting, unit/integration tests, and containerized E2E tests cleanly on every push.
 
 ---
 
@@ -409,11 +428,93 @@ Total test coverage of `src/` must be $\ge 95\%$ lines (`coverage run -m unittes
 
 ---
 
-## 11. Documentation Requirements
+## 11. Documentation Requirements & Generator Mandate
 
-1. **`README.md`**: Must exist at root level documenting: installation, running the server, the full command API table, RESP wire format envelopes, AOF format, `make test`/`lint`/`e2e`, and `redis-cli` usage examples.
-2. **`docs/` Folder**: Must contain documentation in Read the Docs format (`docs/index.md`, `docs/api.md`) covering Architecture, Protocol Reference, Store & Expiration Engine, Persistence, and Deployment.
-3. **`.readthedocs.yaml`**: Must exist at root level configured to build the `docs/` documentation bundle.
+Generators MUST write complete, production-grade documentation across `README.md` and the `docs/` folder (`docs/index.md`, `docs/api.md`, `.readthedocs.yaml`). Documentation must NOT contain placeholder text or empty stubs.
+
+### 11.1 Installation & Setup Documentation
+The documentation must detail:
+- **System Requirements:** Python 3.10+ / 3.14+, Docker (for containerized E2E testing).
+- **Installation Instructions:**
+  - Standard `pip` installation: `pip install -e .` or `pip install -r requirements.txt`.
+  - Development installation via Makefile: `make install`.
+- **Server Execution:**
+  - Running via CLI: `python3 -m src.main` or `make run`.
+  - Configuration via environment variables (`PORT`, `PYEDIS_DATA_DIR`, `PYEDIS_AOF_FSYNC`).
+
+### 11.2 Usage Guide & Client Connection Examples
+The documentation must provide clear, copy-pasteable connection examples:
+- **`redis-cli` (Official Redis CLI):**
+  ```bash
+  redis-cli -p 6379 PING
+  redis-cli -p 6379 SET user:101 "Alice" EX 60
+  redis-cli -p 6379 GET user:101
+  redis-cli -p 6379 INCR counter
+  redis-cli -p 6379 TTL user:101
+  ```
+- **`redis-py` (Python Client v5+):**
+  ```python
+  import redis
+
+  r = redis.Redis(host="localhost", port=6379, decode_responses=True)
+  r.set("greeting", "Hello from pyedis!", ex=30)
+  print(r.get("greeting"))  # Output: Hello from pyedis!
+
+  # Pipelining support
+  pipe = r.pipeline()
+  pipe.set("a", "1").incr("a").get("a")
+  results = pipe.execute()
+  ```
+- **Raw Socket / Telnet / Inline Protocol:**
+  Demonstrating connection via `nc localhost 6379` or `telnet localhost 6379` sending raw inline commands (`PING\r\n`, `SET k v\r\n`).
+
+### 11.3 Use Cases of `pyedis`
+The documentation must articulate the primary use cases and benefits of `pyedis`:
+1. **Lightweight Embedded/Local Redis Replacement for Testing & Development:**
+   - Run integration and functional test suites in CI/CD pipelines without provisioning or managing a heavy external Redis daemon, background system service, or Docker container.
+2. **Fast Mocking & Integration Test Environments:**
+   - Instant startup (<50ms), zero external C/Rust dependencies, deterministic time injection for TTL testing, and full process isolation.
+3. **Pure-Python Redis-Compatible Microservices & Edge Apps:**
+   - Embed an in-process, RESP2/RESP3-compliant cache or state store directly into Python applications.
+4. **Educational RESP & Async Protocol Reference:**
+   - A clean, modern, fully typed (`mypy --strict`) reference implementation illustrating zero-copy RESP streaming decoders, `asyncio.start_server`, and AOF persistence with absolute timestamp replay.
+
+### 11.4 Supported Operations Reference
+The documentation must include a comprehensive reference table of all supported Redis commands:
+- **System & Connection Management:**
+  - `PING [message]` — Connection health verification.
+  - `ECHO message` — Message echoing.
+  - `QUIT` — Connection termination.
+- **Key-Value String Operations:**
+  - `SET key value [EX seconds] [PX milliseconds] [NX|XX]` — String assignment with existence flags and expiration.
+  - `GET key` — String retrieval.
+  - `DEL key [key ...]` — Key deletion (single or multiple).
+  - `EXISTS key [key ...]` — Key existence counting.
+- **Numerical Operations:**
+  - `INCR key` / `DECR key` — Atomic increment / decrement with TTL preservation.
+- **Key Expiration & Inspection:**
+  - `EXPIRE key seconds` — Setting relative expiration timeouts.
+  - `TTL key` — Querying remaining time-to-live (`-2`, `-1`, or positive seconds).
+  - `KEYS pattern` — Glob pattern key matching (`*`, `?`, `[abc]`).
+  - `FLUSHALL` — State wiping and AOF truncation.
+- **Driver Handshake & Protocol Negotiation:**
+  - `COMMAND [DOCS]`, `INFO [section]`, `CLIENT SETNAME|GETNAME` — Transparent client driver compatibility.
+
+### 11.5 Level of Compatibility with Redis
+The documentation must explicitly explain the level of compatibility and architectural boundaries:
+- **100% Wire Protocol Compatibility (RESP2 & RESP3):** Exact framing parity for Simple Strings (`+`), Errors (`-`), Integers (`:`), Bulk Strings (`$`), and Arrays (`*`), along with inline command parsing.
+- **100% Client Library Compatibility:** Seamless interoperability with standard tools (`redis-cli`, `redis-py` v5+, `ioredis`, Go `go-redis`, etc.).
+- **Deterministic Semantics Parity:** Identical command names (case-insensitive), error message envelopes (`-ERR ...`), return formats, arity checks, and expiration behavior.
+- **Durability Model:** Append-Only File (`dump.aof`) with JSON-formatted records and absolute epoch timestamps (`expire_at`), guaranteeing durability without snapshotting overhead.
+- **Architectural Scope & Deliberate Exclusions:**
+  - *In Scope:* Core string operations, numerical operations, TTL expiration, active/lazy sweeps, AOF durability, TCP async server.
+  - *Out of Scope (By Design for Lightweight Footprint):* Advanced compound data structures (Hashes, Sets, Sorted Sets, Streams, Bitmaps), Pub/Sub messaging, Lua scripting (`EVAL`), Redis Cluster / Sentinel replication, and binary RDB snapshotting.
+
+### 11.6 Documentation Files & Structure
+- **`README.md`**: Main repository guide featuring overview, quick start, installation, use cases, command table, compatibility matrix, and developer commands (`make test`, `make lint`, `make e2e`).
+- **`docs/index.md`**: Entry point for Read the Docs covering architecture, key features, getting started, and design philosophy.
+- **`docs/api.md`**: Detailed technical reference covering RESP specification, full command reference, AOF persistence mechanics, and Redis compatibility comparison.
+- **`.readthedocs.yaml`**: Standard configuration file for Read the Docs builds.
 
 ---
 
@@ -423,4 +524,6 @@ To consider `pyedis` fully implemented, the project must satisfy:
 1. **Public RESP API & CLI Compatibility:** Native Redis RESP2/RESP3 wire-protocol TCP server operating on port 6379, passing all command assertions via official `redis-cli` and `redis-py` (v5+).
 2. **Persistence & Durability Invariant:** AOF persistence engine logs mutations with absolute `expire_at` timestamps, tolerates corrupt trailing lines, and successfully restores state on restart.
 3. **Linting Invariant:** Zero findings under `ruff check src tests` AND `mypy --strict src`.
-4. **Verification Criteria:** 100% test pass rate on `make test` (unit + integration executed via standard library `unittest`, ZERO `pytest` usage) and `make e2e`, with $\ge 95\%$ test coverage across `src/`.
+4. **Verification Criteria:** 100% test pass rate on `make test` (unit + integration executed via standard library `unittest`, ZERO `pytest` usage) and `make e2e` (containerized black-box test harness), with $\ge 95\%$ test coverage across `src/`.
+5. **Comprehensive Documentation:** Complete `README.md`, `docs/index.md`, `docs/api.md`, and `.readthedocs.yaml` authored by generators with full installation instructions, usage examples, use cases, supported operations reference, and Redis compatibility level.
+6. **GitHub Actions CI Pipeline:** `.github/workflows/ci.yml` runs on every push (and PR) across all branches, verifying that linters, unit/integration tests, and containerized E2E tests execute and pass cleanly.
