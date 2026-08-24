@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Dict, Optional
 
 
 class Store:
     def __init__(self) -> None:
-        self._data: Dict[str, str] = {}
+        self._data: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
-    async def get(self, key: str) -> Optional[str]:
+    async def get(self, key: str) -> str | None:
         async with self._lock:
             return self._data.get(key)
 
