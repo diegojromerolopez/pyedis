@@ -73,19 +73,19 @@ class CommandDispatcher:
             if len(args) != 2:
                 return encode_error("ERR wrong number of arguments for 'incr' command")
             key = args[1].decode("utf-8")
-            val, err = await self.store.incr_by(key, 1)
+            num_val, err = await self.store.incr_by(key, 1)
             if err:
                 return encode_error(err)
-            return encode_integer(val if val is not None else 0)
+            return encode_integer(num_val if num_val is not None else 0)
 
         elif cmd_str == "decr":
             if len(args) != 2:
                 return encode_error("ERR wrong number of arguments for 'decr' command")
             key = args[1].decode("utf-8")
-            val, err = await self.store.incr_by(key, -1)
+            num_val, err = await self.store.incr_by(key, -1)
             if err:
                 return encode_error(err)
-            return encode_integer(val if val is not None else 0)
+            return encode_integer(num_val if num_val is not None else 0)
 
         elif cmd_str == "del":
             if len(args) < 2:
