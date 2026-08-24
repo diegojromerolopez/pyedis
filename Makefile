@@ -16,8 +16,6 @@ format:
 	ruff format src tests || ruff check --fix src tests
 
 e2e:
-	# NOTE: docker-compose (v1 standalone CLI) is deprecated and no longer supported.
-	# The correct command is `docker compose` (Docker Compose v2 plugin).
 	docker compose -f docker-compose.e2e.yml up --build --exit-code-from test-runner-e2e
 
 clean:

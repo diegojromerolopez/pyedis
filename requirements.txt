@@ -1,4 +1,1 @@
-# NOTE: This file should not have been created by noctifab.
-# All project dependencies (runtime and dev tooling) are declared in pyproject.toml.
-# pyproject.toml already defines [project].dependencies = [] and [tool.ruff] / [tool.mypy] config.
-# Having an empty requirements.txt here is misleading and redundant.
+
