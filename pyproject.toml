@@ -19,7 +19,7 @@ select = ["E", "F", "B", "I", "N", "UP", "RUF"]
 ignore = []
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
