@@ -224,7 +224,13 @@ import asyncio
 
 async def run_server(host: str = "0.0.0.0", port: int = 6379,
                        data_dir: str = "./data", fsync: bool = True) -> None:
-    """Starts TCP server loop, replays AOF, and listens for client connections."""
+    """
+    Starts the TCP server loop:
+    1. Creates `data_dir` via `os.makedirs(data_dir, exist_ok=True)` — MUST NOT assume it exists.
+    2. Replays AOF from `<data_dir>/dump.aof` into the store (if the file exists).
+    3. Registers SIGINT/SIGTERM handlers for graceful shutdown.
+    4. Calls `asyncio.start_server` and serves forever.
+    """
     ...
 
 def main() -> None:
@@ -243,15 +249,51 @@ if __name__ == "__main__":
 - **Runtime:** Standard Python 3.14+ library (`asyncio`, `dataclass`, `os`, `sys`, `time`, `typing`, `pathlib`, `json`, `signal`, `fnmatch`). No external web frameworks.
 - **Dev:** `redis>=5.0`, `ruff>=0.8`, `mypy>=1.13`, `coverage>=7.6`. (NO `pytest`).
 - **Testing Framework Rule (MANDATORY):** Tests MUST NOT use `pytest` or any third-party test framework under any circumstances. All unit and integration tests MUST be written using Python's standard library `unittest` framework (using `unittest.TestCase`, `unittest.IsolatedAsyncioTestCase` for async tests, and `unittest.mock`). All test modules must be executable via `python3 -m unittest discover -s tests`.
+- **`pyproject.toml` Toolchain Configuration (MANDATORY):** Generators MUST emit a `pyproject.toml` containing exactly the following tool sections — no deviations:
+  ```toml
+  [tool.mypy]
+  strict = true
+  python_version = "3.12"
+  exclude = ["tests/"]
+
+  [tool.ruff]
+  line-length = 100
+  target-version = "py310"
+
+  [tool.ruff.lint]
+  select = ["E", "F", "I", "UP", "B", "C4", "PIE", "SIM"]
+  ```
+  `mypy` is run with `--strict src` (source only). `ruff` checks both `src` and `tests`.
 
 ### 4.2 Makefile Targets
-Every target below is REQUIRED and must be defined cleanly:
-- `make install` → `python3 -m pip install -e ".[dev]"` (or `pip install -r requirements.txt`).
-- `make run` → `python3 -m src.main`.
-- `make test` → `python3 -m unittest discover -s tests -v` (runs unit + integration suites via standard library `unittest`; zero failures allowed; zero `pytest` usage).
-- `make lint` → `ruff check src tests` AND `mypy --strict src` — both must pass with zero findings.
-- `make format` → `ruff format src tests` (idempotent code formatting).
-- `make e2e` → `docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from test-runner-e2e`. Note: All E2E testing tools (including `redis-cli`) run strictly inside the containerized test runner service; NO host system package installation (such as host `redis-cli`) is required.
+Every target below is REQUIRED. The Makefile MUST use these exact commands — do not substitute alternatives:
+```makefile
+.PHONY: install run test lint format e2e clean
+
+install:
+	python3 -m pip install -e ".[dev]"
+
+run:
+	python3 -m src.main
+
+test:
+	python3 -m unittest discover -s tests -v
+
+lint:
+	ruff check src tests
+	mypy --strict src
+
+format:
+	ruff format src tests
+
+e2e:
+	docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from test-runner-e2e
+
+clean:
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	rm -rf .mypy_cache .ruff_cache htmlcov .coverage
+```
+Note: All E2E testing tools (including `redis-cli`) run strictly inside the containerized test runner service; NO host system package installation is required.
 
 ### 4.3 Configuration Environment Variables
 - `PORT` (default `6379`): TCP listen port for the RESP server.
@@ -328,7 +370,7 @@ A GitHub Actions CI workflow MUST be configured in `.github/workflows/ci.yml` th
 
 ### 6.1 Special Semantics & Edge Cases
 1. **`SET` Overwrite Behavior:** Overwriting a key with `SET key new_val` (without `EX`/`PX`) clears any existing expiration on that key, making it persistent (`TTL` becomes `-1`).
-2. **`SET` Duration Bounds & Flag Order:** `EX` requires positive integer seconds; `PX` requires positive integer milliseconds. If duration $\le 0$, return `-ERR value is not an integer or out of range\r\n`. Flag ordering must be flexible (e.g. `SET k v EX 10 NX` and `SET k v NX EX 10` are both valid).
+2. **`SET` Duration Bounds, Flag Order & PX Conversion:** `EX` requires positive integer seconds; `PX` requires positive integer milliseconds. If duration $\le 0$, return `-ERR value is not an integer or out of range\r\n`. Flag ordering must be flexible (e.g. `SET k v EX 10 NX` and `SET k v NX EX 10` are both valid). **Critical:** `PX <ms>` MUST be converted to an absolute expiration timestamp as `expire_at = clock() + ms / 1000.0` — store the absolute `float`, not the relative millisecond offset. This follows the same absolute-timestamp invariant as `EX`.
 3. **`INCR`/`DECR` Initial Value & TTL:** If the key does not exist, it is initialized to `"0"` prior to modification (becoming `1` or `-1`). If the key already has an expiration, that expiration timestamp MUST be preserved after `INCR`/`DECR`.
 4. **`EXPIRE` Non-Positive Durations:** If `EXPIRE key seconds` is called with `seconds <= 0`, the key MUST be deleted immediately. Returns `:1\r\n` if the key existed, `:0\r\n` otherwise.
 5. **Connection Negotiation Commands:** Modern Redis drivers (`redis-py` v5+) automatically issue `COMMAND`, `INFO`, or `CLIENT SETNAME` on connection. Returning `*0\r\n` or `+OK\r\n` satisfies the handshake cleanly without erroring out.
@@ -342,7 +384,7 @@ A GitHub Actions CI workflow MUST be configured in `.github/workflows/ci.yml` th
 3. **Dual-Mode Expiration Strategy:**
    - **Lazy Eviction:** On any key access (`GET`, `SET`, `DEL`, `EXISTS`, `INCR`, `DECR`, `TTL`, `EXPIRE`), if current time $\ge$ expiration timestamp, the key is purged before completing the operation.
    - **Active Sweep:** Before executing `KEYS` or `FLUSHALL`, the store performs an active scan to evict all expired keys so stale keys never appear in query results.
-4. **Concurrency Safety:** All store mutations and queries execute under a shared `asyncio.Lock` owned by the `Store` instance, guaranteeing serialized atomic operations across concurrent client connections.
+4. **Concurrency Safety:** All store mutations and queries execute under a shared `asyncio.Lock` owned by the `Store` instance, guaranteeing serialized atomic operations across concurrent client connections. The AOF `log_mutation()` call MUST happen **inside** the acquired lock, before the lock is released and before the RESP reply is written to the client. This ensures no two commands can interleave their store change and AOF append.
 
 ---
 
