@@ -16,20 +16,20 @@ class CommandDispatcher:
 
     async def dispatch(self, args: List[bytes]) -> bytes:
         if not args:
-            return encode_error("empty command")
+            return encode_error("ERR empty command")
 
         cmd_str = args[0].decode("utf-8", errors="replace").lower()
 
         if cmd_str == "get":
             if len(args) != 2:
-                return encode_error("wrong number of arguments for 'get' command")
+                return encode_error("ERR wrong number of arguments for 'get' command")
             key = args[1].decode("utf-8")
             val = await self.store.get(key)
             return encode_bulk_string(val)
 
         elif cmd_str == "set":
             if len(args) != 3:
-                return encode_error("wrong number of arguments for 'set' command")
+                return encode_error("ERR wrong number of arguments for 'set' command")
             key = args[1].decode("utf-8")
             val = args[2].decode("utf-8")
             await self.store.set(key, val)
@@ -37,17 +37,19 @@ class CommandDispatcher:
 
         elif cmd_str == "del":
             if len(args) < 2:
-                return encode_error("wrong number of arguments for 'del' command")
+                return encode_error("ERR wrong number of arguments for 'del' command")
             keys = [a.decode("utf-8") for a in args[1:]]
             count = await self.store.delete(*keys)
             return encode_integer(count)
 
         elif cmd_str == "exists":
             if len(args) < 2:
-                return encode_error("wrong number of arguments for 'exists' command")
+                return encode_error(
+                    "ERR wrong number of arguments for 'exists' command"
+                )
             keys = [a.decode("utf-8") for a in args[1:]]
             count = await self.store.exists(*keys)
             return encode_integer(count)
 
         else:
-            return encode_error(f"unknown command '{cmd_str}'")
+            return encode_error(f"ERR unknown command '{cmd_str}'")
