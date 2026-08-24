@@ -47,7 +47,7 @@ class TestRESPDecoding(unittest.TestCase):
     def test_decode_error(self) -> None:
         val, read = decode_resp(b"-ERR wrong type\r\n")
         self.assertEqual(val, Error("ERR wrong type"))
-        self.assertEqual(read, 18)
+        self.assertEqual(read, 17)
 
     def test_decode_integer(self) -> None:
         val, read = decode_resp(b":1000\r\n")
