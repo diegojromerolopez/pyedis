@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import List
 from src.resp import (
     encode_bulk_string,
     encode_error,
@@ -14,7 +13,7 @@ class CommandDispatcher:
     def __init__(self, store: Store) -> None:
         self.store = store
 
-    async def dispatch(self, args: List[bytes]) -> bytes:
+    async def dispatch(self, args: list[bytes]) -> bytes:
         if not args:
             return encode_error("ERR empty command")
 
