@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyedis"
+version = "0.1.0"
+description = "A Redis server implementation in Python"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = []
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "I", "N", "UP", "RUF"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.8"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
