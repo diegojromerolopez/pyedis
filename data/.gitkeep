@@ -1,2 +1,0 @@
-# data/ directory — runtime AOF storage (git-ignored except this marker)
-# dump.aof is written here at runtime; the directory must exist before pyedis starts.

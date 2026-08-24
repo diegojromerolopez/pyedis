@@ -1,3 +1,0 @@
-# tests/e2e — black-box shell-script suite (no __init__.py needed)
-# The entrypoint is tests/e2e/run_tests.sh, executed inside the Docker test runner container.
-# See docker-compose.e2e.yml and Dockerfile.e2e for the containerized harness.
