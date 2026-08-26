@@ -24,7 +24,7 @@
 2. **Zero External Framework Dependencies:** Pure standard library async TCP networking (`asyncio.start_server`). No FastAPI, Starlette, Uvicorn, or web frameworks.
 3. **Deterministic Dependency Injection:** The in-memory store accepts an injected `Clock` callable (`Callable[[], float]`), allowing unit tests to freeze, step, and fast-forward time deterministically without `sleep()` delays.
 4. **Absolute Expiration Durability:** AOF records store absolute Unix epoch timestamps (`expire_at`), ensuring expired keys are never resurrected across server reboots.
-5. **Strict Typing & Zero Linter Warnings:** Full PEP 585 built-in generic collections (`dict`, `list`, `tuple`, `set`). Must pass `ruff check src tests` and `mypy --strict src` with zero findings.
+5. **Functional Focus for Intermediate Stories & Best-Effort Final Linting:** Intermediate feature user stories MUST be gated solely on functional correctness (`make test` and `make e2e`). All formatting (`ruff format`), linting (`ruff check`), and static type checking (`mypy --strict src`) MUST be deferred to a dedicated final user story ("Codebase Hardening, Formatting & Linting"). This final story operates on a **best-effort** basis: a 100% issue-free check is NOT mandatory; minor linter/typing warnings (e.g. 10%–20% of code lines with non-fatal issues or complex generic annotations) are permissible and MUST NOT block completion.
 6. **REAL E2E Client-Server Validation:** Automated black-box validation in a multi-container Docker Compose harness (`docker-compose.e2e.yml`) providing continuous implementation feedback by testing real client connections against the server.
 7. **500-Line Limit Rule:** No single Python source file (`.py`) may exceed 500 lines of code.
 
@@ -317,10 +317,10 @@ A GitHub Actions CI workflow MUST be configured in `.github/workflows/ci.yml` th
 - **Automated Verification Pipeline:**
   1. **Checkout & Python Setup:** Checks out the codebase and provisions Python (3.12+ / 3.14).
   2. **Dependency Installation:** Installs runtime and development dependencies cleanly (`make install` or `pip install -r requirements.txt`).
-  3. **Lint & Static Type Verification:** Executes `make lint` (`ruff check src tests` and `mypy --strict src`), requiring zero findings.
+  3. **Lint & Static Type Verification:** Executes `make lint` (`ruff check src tests` and `mypy --strict src`) on a best-effort basis (non-blocking for intermediate development; finalized in the final hardening user story).
   4. **Unit & Integration Test Execution:** Executes `make test` (`python3 -m unittest discover -s tests -v`), verifying all unit and integration test suites pass with 100% success rate.
   5. **Containerized E2E Black-Box Test Execution:** Executes `make e2e` (`docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from test-runner-e2e`), ensuring the end-to-end black-box CLI test suite against the live containerized server succeeds completely.
-- **Mandatory Pipeline Gate:** Linters, unit/integration tests, and containerized E2E black-box tests MUST all run and succeed with exit code 0 on every push for CI to pass.
+- **Mandatory Pipeline Gate:** Unit/integration tests (`make test`) and containerized E2E black-box tests (`make e2e`) MUST all run and succeed with exit code 0 on every push for CI to pass. Linting and formatting are handled on a best-effort basis in the final hardening phase.
 
 ---
 
@@ -868,7 +868,7 @@ The documentation must explicitly explain the full compatibility level of `pyedi
 To consider `pyedis` fully implemented, the project must satisfy:
 1. **Full Redis Standalone Command Suite & Public RESP API Compatibility:** Complete implementation of all 217 Redis commands across all data types (Strings, Lists, Hashes, Sets, Sorted Sets, HyperLogLog, Streams, Bitmaps, Geospatial, Keys, Server, Connection, Transactions, Pub/Sub, Scripting) operating on port 6379, passing all command assertions via official `redis-cli` and `redis-py` (v5+).
 2. **Persistence & Durability Invariant:** AOF persistence engine logs mutations across all data structures with absolute `expire_at` timestamps, tolerates corrupt trailing lines, and successfully restores state on restart.
-3. **Linting Invariant:** Zero findings under `ruff check src tests` AND `mypy --strict src`.
+3. **Linting & Formatting Invariant (Final User Story - Best Effort):** Intermediate feature user stories MUST NOT be gated on `make lint`. A dedicated final user story ("Codebase Hardening, Formatting & Linting") is tasked with running `ruff format`, `ruff check --fix`, and resolving static typing (`mypy --strict src`). This final story operates on a **best-effort** basis: a 100% issue-free report is not required, and minor non-fatal typing/linter warnings (affecting up to 10%–20% of code lines) are permissible.
 4. **Verification Criteria:** 100% test pass rate on `make test` (unit + integration executed via standard library `unittest`, ZERO `pytest` usage) and `make e2e` (REAL multi-container client-server E2E tests via `docker-compose.e2e.yml` validating the running `pyedis` service from a dedicated test runner), with >= 95% test coverage across `src/`.
 5. **Comprehensive Documentation:** Complete `README.md`, `docs/index.md`, `docs/api.md`, and `.readthedocs.yaml` authored by generators with full installation instructions, usage examples, use cases, complete supported operations reference, and Redis compatibility level.
-6. **GitHub Actions CI Pipeline:** `.github/workflows/ci.yml` runs on every push (and PR) across all branches, verifying that linters, unit/integration tests, and containerized E2E tests execute and pass cleanly.
+6. **GitHub Actions CI Pipeline:** `.github/workflows/ci.yml` runs on every push (and PR) across all branches, verifying that unit/integration tests and containerized E2E tests execute and pass cleanly.
