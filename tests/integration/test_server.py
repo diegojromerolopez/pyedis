@@ -1,5 +1,6 @@
 import asyncio
 import socket
+import threading
 import unittest
 from src.main import handle_client
 from src.commands import handle_command
@@ -70,23 +71,23 @@ class TestServerIntegration(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(cls.loop)
-
-        sock = socket.socket()
-        sock.bind(("127.0.0.1", 0))
-        cls.port = sock.getsockname()[1]
-        sock.close()
+        cls.thread = threading.Thread(target=cls.loop.run_forever, daemon=True)
+        cls.thread.start()
 
         async def start_test_server():
-            return await asyncio.start_server(handle_client, "127.0.0.1", cls.port)
+            return await asyncio.start_server(handle_client, "127.0.0.1", 0)
 
-        cls.server = cls.loop.run_until_complete(start_test_server())
+        future = asyncio.run_coroutine_threadsafe(start_test_server(), cls.loop)
+        cls.server = future.result()
+        cls.port = cls.server.sockets[0].getsockname()[1]
 
     @classmethod
     def tearDownClass(cls):
         cls.server.close()
-        cls.loop.run_until_complete(cls.server.wait_closed())
-        cls.loop.close()
+        future = asyncio.run_coroutine_threadsafe(cls.server.wait_closed(), cls.loop)
+        future.result()
+        cls.loop.call_soon_threadsafe(cls.loop.stop)
+        cls.thread.join()
 
     def _send_recv(self, data: bytes) -> bytes:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
