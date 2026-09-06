@@ -1,16 +1,34 @@
 config_version: '2.0'
 execution_report: ".noctifab/report/execution_report.md"
 agents:
-  architecture: code_first
+  architecture: single_pass
+  spike:
+    enabled: true
+    timeout_seconds: 45
+    providers:
+    - name: gemini-flash
+    - name: claude
+    - name: gemini
+    - name: openai
+    - name: deepseek-pro
+    - name: qwen
+    - name: opencode
+    - name: openrouter
   orchestrator:
-    number: 1
+    number: 3
     iterations: 2
   product_manager:
     number: 1
     iterations: 2
-    max_user_stories: 5
-    passes: 3
+    passes: 1
+    user_stories:
+      max_count: 4
+      complexity:
+        min: 15
+        max: 35
+    max_tokens: -1
     providers:
+    - name: gemini-flash
     - name: claude
     - name: gemini
     - name: openai
@@ -20,49 +38,45 @@ agents:
     - name: openrouter
   planner:
     number: 1
-    iterations: 2
-  generators:
-    number: 6
     iterations: 5
     providers:
-    - name: claude
-    - name: openai
     - name: gemini-flash
+    - name: claude
     - name: gemini
+    - name: openai
+    - name: deepseek-pro
+    - name: qwen
+    - name: opencode
+    - name: openrouter
+  generators:
+    number: 6
+    iterations: 20
+    max_tokens: -1
+    providers:
+    - name: gemini-flash
+    - name: claude
+    - name: gemini
+    - name: openai
     - name: deepseek-pro
     - name: qwen
     - name: opencode
     - name: openrouter
   testers:
     number: 2
-    iterations: 3
+    iterations: 15
+    max_tokens: -1
     providers:
-    - name: claude
-    - name: openai
     - name: gemini-flash
+    - name: claude
     - name: gemini
+    - name: openai
     - name: deepseek-pro
     - name: qwen
     - name: opencode
     - name: openrouter
   qa:
-    enabled: true
+    enabled: false
     iterations: 2
-    max_duration: 2m
-    max_scenarios: 8
-    max_review_rounds: 2
-    max_output_bytes: 65536
-    blocking: true
-    network: "none"
-    build_command:
-    - make
-    - install
-    validation_commands:
-    - tests/e2e/run_tests.sh
-    - make
-    - python3
-    tester_path_prefixes:
-    - tests/
     providers:
     - name: gemini-flash
     - name: claude
@@ -75,24 +89,9 @@ agents:
   auditor:
     number: 1
     iterations: 2
+    max_tokens: -1
     providers:
-    - name: claude
-    - name: gemini
-    - name: openai
-    - name: deepseek-pro
-    - name: qwen
-    - name: opencode
-    - name: openrouter
-  last_resort:
-    enabled: true
-    model: claude-sonnet-5
-    temperature: 0.0
-    max_turns: 2
-    timeout: 5m
-    allow_spec_mutation: true
-    allow_scope_reduction: true
-    enforce_spec_quality: true
-    providers:
+    - name: gemini-flash
     - name: claude
     - name: gemini
     - name: openai
@@ -103,20 +102,22 @@ agents:
   unblocker:
     number: 1
     iterations: 2
+    max_tokens: -1
 workspace_cache:
   enabled: true
 poll_interval: 10s
 max_clarification_wait: 30m0s
-clarification_timeout_action: abort
+clarification_timeout_action: continue
 storage:
   provider: sqlite
   conn_string: .noctifab/data/noctifab.db
   json_file_path: .noctifab/data/state.json
   occ:
-    max_retries: 5
-    backoff_base: 50ms
+    max_retries: 20
+    backoff_base: 100ms
     backoff_factor: 2
 llm:
+  token_usage_limit: 0
   priority:
   - gemini-flash
   - claude
@@ -131,149 +132,152 @@ llm:
     provider: anthropic
     model: claude-sonnet-5
     api_keys: CLAUDE_API_KEY
-    max_retries: 2
-    retry_backoff: 50ms
+    max_retries: 3
+    retry_backoff: 500ms
     max_timeout: 60s
     idle_timeout: 60s
-    max_tokens: 32768
+    max_tokens: -1
     temperature: 0.3
     streaming: true
   - name: gemini-flash
     provider: gemini
     model: gemini-3.6-flash
     api_keys: GEMINI_API_KEY
-    max_retries: 2
-    retry_backoff: 50ms
+    max_retries: 3
+    retry_backoff: 500ms
     max_timeout: 60s
     idle_timeout: 60s
-    max_tokens: 32768
+    max_tokens: -1
     temperature: 0.3
     streaming: true
   - name: gemini
     provider: gemini
     model: gemini-3.6-pro
     api_keys: GEMINI_API_KEY
-    max_retries: 2
-    retry_backoff: 50ms
+    max_retries: 3
+    retry_backoff: 500ms
     max_timeout: 60s
     idle_timeout: 60s
-    max_tokens: 32768
+    max_tokens: -1
     temperature: 0.3
     streaming: true
   - name: openai
     provider: openai
     model: gpt-5.6-luna
     api_keys: OPENAI_API_KEY
-    max_retries: 2
-    retry_backoff: 50ms
+    max_retries: 3
+    retry_backoff: 500ms
     max_timeout: 60s
     idle_timeout: 60s
-    max_tokens: 32768
+    max_tokens: -1
     temperature: 0.3
     streaming: true
   - name: deepseek-pro
     provider: qwencloud
     model: deepseek-v4-pro
     api_keys: QWENCLOUD_API_KEY
-    max_retries: 2
-    retry_backoff: 50ms
+    max_retries: 3
+    retry_backoff: 500ms
     max_timeout: 60s
     idle_timeout: 60s
-    max_tokens: 32768
+    max_tokens: -1
     temperature: 0.3
     streaming: true
   - name: qwen
     provider: qwencloud
     model: qwen3.8-max
     api_keys: QWENCLOUD_API_KEY
-    max_retries: 2
-    retry_backoff: 50ms
+    max_retries: 3
+    retry_backoff: 500ms
     max_timeout: 60s
     idle_timeout: 60s
-    max_tokens: 32768
+    max_tokens: -1
     temperature: 0.3
     streaming: true
     enable_thinking: true
-    thinking_budget: 8192
+    thinking_budget: 2048
   - name: opencode
     provider: opencode
     model: glm-5.2
     api_keys: OPENCODE_ZEN_API_KEY
-    max_retries: 2
-    retry_backoff: 50ms
+    max_retries: 3
+    retry_backoff: 500ms
     max_timeout: 60s
     idle_timeout: 60s
-    max_tokens: 32768
+    max_tokens: -1
     temperature: 0.3
     streaming: true
   - name: openrouter
     provider: openrouter
     model: deepseek/deepseek-v4-flash-0731
     api_keys: OPENROUTER_API_KEY
-    max_retries: 2
-    retry_backoff: 50ms
+    max_retries: 3
+    retry_backoff: 500ms
     max_timeout: 60s
     idle_timeout: 60s
-    max_tokens: 32768
+    max_tokens: -1
     temperature: 0.3
     streaming: true
 vcs:
   provider: github
   repository: diegojromerolopez/pyedis
   base_branch: main
-  branch_name: feat/noctifab-generation
-  create_branch: true
   branch_prefix: noctifab/
   use_worktrees: true
   token: secret:GITHUB_TOKEN
   token_env: GITHUB_TOKEN
   pull_request:
-    auto_create: true
+    auto_create: false
 sandbox:
   mode: host
   timeout_seconds: 300
   test_command: make test
   formatter_command: make format
+  syntax_check_command: python3 -m py_compile {file}
   linter:
     command: make lint
     max_issues: 100
     consecutive_failures: 2
     max_retries: 3
   exclude_paths:
+  - node_modules/
+  - vendor/
   - bin/
   - dist/
+  - build/
   - .noctifab/
   - .git/
   - data/
   - __pycache__/
   - .venv/
+  - venv/
+  - .pytest_cache/
+  - .mypy_cache/
   allowed_commands:
+  - make
   - python3
   - python
   - pip
   - pip3
-  - make
+  - pytest
   - ruff
   - mypy
-  - coverage
+  - uvicorn
   - git
-  - docker
-  - bash
   - sh
-  - redis-cli
+  - bash
   - curl
-  - kill
-  - sleep
-  - which
+  - docker
 runtime:
   spec_source: ''
-  max_actions: 250
-  max_duration: 2h
-  max_silent_stall_duration: 30m
-  max_tokens_per_story: 2000000
-  max_tokens_per_task: 500000
-  max_tokens: 100000000
-  loops: 1
+  max_actions: 100
+  max_duration: 10m
+  max_silent_stall_duration: 10m
+  max_tokens_per_story: -1
+  max_tokens_per_task: -1
+  max_tokens: -1
+  loop:
+    count: 1
 logging:
   level: info
   file: ''
@@ -287,4 +291,4 @@ telemetry:
 context:
   mode: full
   diff_window_lines: 15
-  compaction: none
+  compaction: caveman
