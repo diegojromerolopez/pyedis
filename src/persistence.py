@@ -1,67 +1,61 @@
+from __future__ import annotations
+
 import json
 import os
 import sys
 from typing import Any
 
-from src.store import Store
+from .store import Store
 
 
-class AOFLogger:
-    def __init__(self, data_dir: str, fsync: bool = True) -> None:
-        self.data_dir = data_dir
-        self.fsync = fsync
-        os.makedirs(data_dir, exist_ok=True)
-        self.filepath = os.path.join(data_dir, "dump.aof")
-        self.file = open(self.filepath, "a+", encoding="utf-8")
+class AOF:
+    def __init__(self, path: str, fsync: bool = True) -> None:
+        self.path = path
+        self.do_fsync = fsync
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        self.file = open(path, "a+", encoding="utf-8")
 
-    def log(self, entry: dict[str, Any]) -> None:
-        line = json.dumps(entry) + "\n"
-        self.file.write(line)
+    def append(self, record: dict[str, Any]) -> None:
+        self.file.write(json.dumps(record, separators=(",", ":")) + "\n")
         self.file.flush()
-        if self.fsync:
+        if self.do_fsync:
             os.fsync(self.file.fileno())
 
     def truncate(self) -> None:
-        self.file.close()
-        self.file = open(self.filepath, "w+", encoding="utf-8")
+        self.file.seek(0)
+        self.file.truncate()
         self.file.flush()
-        if self.fsync:
+        if self.do_fsync:
             os.fsync(self.file.fileno())
 
     def replay(self, store: Store) -> None:
-        if not os.path.exists(self.filepath):
+        self.file.flush()
+        try:
+            lines = open(self.path, encoding="utf-8").read().splitlines()
+        except OSError:
             return
-        with open(self.filepath, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    sys.stderr.write("pyedis: ignoring corrupt trailing AOF line\n")
-                    break
-                op = rec.get("op")
+        for line in lines:
+            try:
+                record = json.loads(line)
+                op = record["op"]
                 if op == "SET":
-                    val = (
-                        rec["value"].encode("utf-8")
-                        if isinstance(rec["value"], str)
-                        else rec["value"]
-                    )
-                    store.set(rec["key"], val, rec.get("expire_at"))
+                    import asyncio
+                    asyncio.run(store.set(record["key"], record["value"].encode(), record.get("expire_at")))
                 elif op == "DEL":
-                    store.delete([rec["key"]])
-                elif op == "INCR":
-                    try:
-                        store.incrby(rec["key"], 1)
-                    except ValueError:
-                        pass
-                elif op == "DECR":
-                    try:
-                        store.incrby(rec["key"], -1)
-                    except ValueError:
-                        pass
+                    import asyncio
+                    asyncio.run(store.delete([record["key"]]))
+                elif op in ("INCR", "DECR"):
+                    import asyncio
+                    asyncio.run(store.increment(record["key"], 1 if op == "INCR" else -1))
                 elif op == "EXPIRE":
-                    store.expire(rec["key"], rec["expire_at"])
+                    import asyncio
+                    asyncio.run(store.set(record["key"], store.values[record["key"]], record["expire_at"]))
                 elif op == "FLUSHALL":
-                    store.flushall()
+                    import asyncio
+                    asyncio.run(store.flush())
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                print("pyedis: ignoring corrupt trailing AOF line", file=sys.stderr)
+                break
+
+    def close(self) -> None:
+        self.file.close()

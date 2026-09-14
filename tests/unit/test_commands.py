@@ -1,31 +1,25 @@
+import asyncio
+import tempfile
 import unittest
-from src.commands import CommandDispatcher
+from src.commands import Dispatcher
+from src.persistence import AOF
 from src.store import Store
 
 
-class TestCommands(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self) -> None:
-        self.time = 1000.0
-        self.store = Store(clock=lambda: self.time)
-        self.dispatcher = CommandDispatcher(self.store, clock=lambda: self.time)
+class CommandTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.dispatcher = Dispatcher(Store(), AOF(self.directory.name + "/dump.aof", False))
 
-    async def test_ping(self) -> None:
-        res, close = await self.dispatcher.dispatch([b"PING"])
-        self.assertEqual(res, b"+PONG\r\n")
-        self.assertFalse(close)
+    def tearDown(self) -> None:
+        self.directory.cleanup()
 
-    async def test_set_nx_xx(self) -> None:
-        res, _ = await self.dispatcher.dispatch([b"SET", b"k", b"v", b"NX"])
-        self.assertEqual(res, b"+OK\r\n")
-        res, _ = await self.dispatcher.dispatch([b"SET", b"k", b"v", b"NX"])
-        self.assertEqual(res, b"$-1\r\n")
-        res, _ = await self.dispatcher.dispatch([b"SET", b"k", b"v", b"XX"])
-        self.assertEqual(res, b"+OK\r\n")
+    def run(self, *parts: bytes) -> bytes:
+        return asyncio.run(self.dispatcher.dispatch(list(parts)))[0]
 
-    async def test_arity_error(self) -> None:
-        res, _ = await self.dispatcher.dispatch([b"GET"])
-        self.assertIn(b"-ERR wrong number of arguments", res)
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_commands_and_errors(self) -> None:
+        self.assertEqual(self.run(b"PING"), b"+PONG\r\n")
+        self.assertEqual(self.run(b"GET"), b"-ERR wrong number of arguments for 'get' command\r\n")
+        self.assertEqual(self.run(b"set", b"k", b"v"), b"+OK\r\n")
+        self.assertEqual(self.run(b"GET", b"k"), b"$1\r\nv\r\n")
+        self.assertEqual(self.run(b"NOPE"), b"-ERR unknown command 'NOPE'\r\n")

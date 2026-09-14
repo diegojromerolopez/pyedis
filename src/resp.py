@@ -1,117 +1,96 @@
-import fnmatch
-
-RESPValue = str | bytes | int | float | list["RESPValue"] | None
+from __future__ import annotations
 
 
-def encode_simple_string(val: str) -> bytes:
-    return f"+{val}\r\n".encode("utf-8")
+class IncompleteFrame(Exception):
+    """Raised internally when a frame needs more bytes."""
 
 
-def encode_error(err_type: str, message: str) -> bytes:
-    return f"-{err_type} {message}\r\n".encode("utf-8")
+def simple(value: str) -> bytes:
+    return b"+" + value.encode() + b"\r\n"
 
 
-def encode_integer(val: int) -> bytes:
-    return f":{val}\r\n".encode("utf-8")
+def error(value: str) -> bytes:
+    return b"-" + value.encode() + b"\r\n"
 
 
-def encode_bulk_string(val: bytes | str | None) -> bytes:
-    if val is None:
+def integer(value: int) -> bytes:
+    return f":{value}\r\n".encode()
+
+
+def bulk(value: bytes | str | None) -> bytes:
+    if value is None:
         return b"$-1\r\n"
-    if isinstance(val, str):
-        b_val = val.encode("utf-8")
-    else:
-        b_val = val
-    return f"${len(b_val)}\r\n".encode("utf-8") + b_val + b"\r\n"
+    raw = value if isinstance(value, bytes) else value.encode()
+    return b"$" + str(len(raw)).encode() + b"\r\n" + raw + b"\r\n"
 
 
-def encode_array(arr: list[bytes] | list[str] | None) -> bytes:
-    if arr is None:
-        return b"*-1\r\n"
-    res = [f"*{len(arr)}\r\n".encode("utf-8")]
-    for item in arr:
-        res.append(encode_bulk_string(item))
-    return b"".join(res)
+def array(values: list[bytes]) -> bytes:
+    return b"*" + str(len(values)).encode() + b"\r\n" + b"".join(values)
 
 
-class RESPDecoder:
-    def __init__(self) -> None:
-        self._buffer = bytearray()
+def _line(data: bytes, start: int) -> tuple[bytes, int]:
+    end = data.find(b"\r\n", start)
+    if end < 0:
+        raise IncompleteFrame
+    return data[start:end], end + 2
 
-    def feed(self, data: bytes) -> None:
-        self._buffer.extend(data)
 
-    def decode_multi(self) -> list[list[bytes]]:
-        cmds: list[list[bytes]] = []
-        while True:
-            saved = bytearray(self._buffer)
-            cmd = self._decode_one()
-            if cmd is None:
-                self._buffer = saved
-                break
-            cmds.append(cmd)
-        return cmds
-
-    def _decode_one(self) -> list[bytes] | None:
-        if not self._buffer:
-            return None
-        if self._buffer.startswith(b"*"):
-            return self._decode_resp_array()
-        else:
-            return self._decode_inline()
-
-    def _decode_inline(self) -> list[bytes] | None:
-        idx = self._buffer.find(b"\r\n")
-        if idx == -1:
-            return None
-        line = bytes(self._buffer[:idx])
-        del self._buffer[: idx + 2]
-        parts = line.split()
-        return [p for p in parts]
-
-    def _decode_resp_array(self) -> list[bytes] | None:
-        idx = self._buffer.find(b"\r\n")
-        if idx == -1:
-            return None
+def _frame(data: bytes, pos: int) -> tuple[bytes, int]:
+    if pos >= len(data):
+        raise IncompleteFrame
+    prefix = data[pos:pos + 1]
+    line, cursor = _line(data, pos + 1)
+    if prefix in (b"+", b"-", b":"):
+        return line, cursor
+    if prefix == b"$":
         try:
-            count = int(self._buffer[1:idx])
-        except ValueError:
-            del self._buffer[: idx + 2]
-            return None
-        del self._buffer[: idx + 2]
+            size = int(line)
+        except ValueError as exc:
+            raise ValueError("invalid bulk length") from exc
+        if size == -1:
+            return b"", cursor
+        end = cursor + size
+        if len(data) < end + 2 or data[end:end + 2] != b"\r\n":
+            raise IncompleteFrame
+        return data[cursor:end], end + 2
+    if prefix == b"*":
+        count = int(line)
         if count < 0:
-            return []
-        args: list[bytes] = []
+            return b"", cursor
+        result: list[bytes] = []
         for _ in range(count):
-            arg = self._decode_bulk_string()
-            if arg is None:
-                return None
-            args.append(arg)
-        return args
-
-    def _decode_bulk_string(self) -> bytes | None:
-        if not self._buffer:
-            return None
-        if not self._buffer.startswith(b"$"):
-            return None
-        idx = self._buffer.find(b"\r\n")
-        if idx == -1:
-            return None
-        try:
-            length = int(self._buffer[1:idx])
-        except ValueError:
-            return None
-        if length < 0:
-            del self._buffer[: idx + 2]
-            return b""
-        start = idx + 2
-        end = start + length
-        if len(self._buffer) < end + 2:
-            return None
-        data = bytes(self._buffer[start:end])
-        del self._buffer[: end + 2]
-        return data
+            value, cursor = _frame(data, cursor)
+            result.append(value)
+        return b"\x00".join(result), cursor
+    raise ValueError("invalid RESP prefix")
 
 
-def glob_match(pattern: str, string: str) -> bool:
-    return fnmatch.fnmatch(string, pattern)
+class Decoder:
+    """Incremental RESP array and inline command decoder."""
+
+    def __init__(self) -> None:
+        self.buffer = bytearray()
+
+    def feed(self, chunk: bytes) -> list[list[bytes]]:
+        self.buffer.extend(chunk)
+        commands: list[list[bytes]] = []
+        while self.buffer:
+            try:
+                if self.buffer[:1] == b"*":
+                    value, used = _frame(bytes(self.buffer), 0)
+                    parts = value.split(b"\x00") if value else []
+                else:
+                    end = self.buffer.find(b"\r\n")
+                    if end < 0:
+                        raise IncompleteFrame
+                    raw = bytes(self.buffer[:end])
+                    used = end + 2
+                    parts = raw.split()
+                if not parts:
+                    del self.buffer[:used]
+                    continue
+                commands.append(parts)
+                del self.buffer[:used]
+            except IncompleteFrame:
+                break
+        return commands

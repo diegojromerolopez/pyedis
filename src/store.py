@@ -1,100 +1,102 @@
+from __future__ import annotations
+
 import asyncio
 import fnmatch
 import time
 from collections.abc import Callable
-from typing import Any
 
 
 class Store:
     def __init__(self, clock: Callable[[], float] = time.time) -> None:
-        self._data: dict[str, bytes] = {}
-        self._expires: dict[str, float] = {}
-        self._clock = clock
+        self.clock = clock
+        self.values: dict[str, bytes] = {}
+        self.expirations: dict[str, float] = {}
         self.lock = asyncio.Lock()
 
-    def _now(self) -> float:
-        return self._clock()
+    def _purge(self, key: str) -> None:
+        expiry = self.expirations.get(key)
+        if expiry is not None and self.clock() >= expiry:
+            self.values.pop(key, None)
+            self.expirations.pop(key, None)
 
-    def _purge_if_expired(self, key: str) -> bool:
-        if key in self._expires:
-            if self._now() >= self._expires[key]:
-                del self._expires[key]
-                if key in self._data:
-                    del self._data[key]
-                return True
-        return False
+    def _sweep(self) -> None:
+        for key in list(self.expirations):
+            self._purge(key)
 
-    def get(self, key: str) -> bytes | None:
-        if self._purge_if_expired(key):
-            return None
-        return self._data.get(key)
+    async def get(self, key: str) -> bytes | None:
+        async with self.lock:
+            self._purge(key)
+            return self.values.get(key)
 
-    def set(self, key: str, value: bytes, expire_at: float | None = None) -> None:
-        self._data[key] = value
-        if expire_at is not None:
-            self._expires[key] = expire_at
-        else:
-            self._expires.pop(key, None)
+    async def exists(self, key: str) -> bool:
+        async with self.lock:
+            self._purge(key)
+            return key in self.values
 
-    def delete(self, keys: list[str]) -> int:
-        count = 0
-        for k in keys:
-            self._purge_if_expired(k)
-            in_data = k in self._data
-            in_exp = k in self._expires
-            self._data.pop(k, None)
-            self._expires.pop(k, None)
-            if in_data or in_exp:
-                count += 1
-        return count
+    async def set(self, key: str, value: bytes, expire_at: float | None = None) -> bool:
+        async with self.lock:
+            self._purge(key)
+            self.values[key] = value
+            if expire_at is None:
+                self.expirations.pop(key, None)
+            else:
+                self.expirations[key] = expire_at
+            return True
 
-    def exists(self, keys: list[str]) -> int:
-        count = 0
-        for k in keys:
-            if not self._purge_if_expired(k) and k in self._data:
-                count += 1
-        return count
+    async def delete(self, keys: list[str]) -> int:
+        async with self.lock:
+            count = 0
+            for key in keys:
+                self._purge(key)
+                if key in self.values:
+                    count += 1
+                    self.values.pop(key)
+                    self.expirations.pop(key, None)
+            return count
 
-    def expire(self, key: str, expire_at: float) -> bool:
-        if self._purge_if_expired(key) or key not in self._data:
-            return False
-        self._expires[key] = expire_at
-        return True
+    async def ttl(self, key: str) -> int:
+        async with self.lock:
+            self._purge(key)
+            if key not in self.values:
+                return -2
+            expiry = self.expirations.get(key)
+            if expiry is None:
+                return -1
+            return max(0, int(expiry - self.clock()))
 
-    def ttl(self, key: str) -> int:
-        if self._purge_if_expired(key) or key not in self._data:
-            return -2
-        if key not in self._expires:
-            return -1
-        remaining = int(self._expires[key] - self._now())
-        return remaining if remaining >= 0 else -2
+    async def expire(self, key: str, seconds: int) -> bool:
+        async with self.lock:
+            self._purge(key)
+            if key not in self.values:
+                return False
+            if seconds <= 0:
+                self.values.pop(key)
+                self.expirations.pop(key, None)
+            else:
+                self.expirations[key] = self.clock() + seconds
+            return True
 
-    def active_sweep(self) -> None:
-        now = self._now()
-        expired_keys = [k for k, exp in self._expires.items() if now >= exp]
-        for k in expired_keys:
-            self._expires.pop(k, None)
-            self._data.pop(k, None)
+    async def keys(self, pattern: str) -> list[str]:
+        async with self.lock:
+            self._sweep()
+            return sorted(key for key in self.values if fnmatch.fnmatchcase(key, pattern))
 
-    def keys(self, pattern: str) -> list[str]:
-        self.active_sweep()
-        res: list[str] = []
-        for k in self._data.keys():
-            if fnmatch.fnmatch(k, pattern):
-                res.append(k)
-        return res
+    async def flush(self) -> None:
+        async with self.lock:
+            self.values.clear()
+            self.expirations.clear()
 
-    def flushall(self) -> None:
-        self._data.clear()
-        self._expires.clear()
-
-    def incrby(self, key: str, amount: int) -> int:
-        self._purge_if_expired(key)
-        val_bytes = self._data.get(key, b"0")
-        try:
-            val_int = int(val_bytes.decode("utf-8"))
-        except ValueError:
-            raise ValueError("value is not an integer or out of range")
-        val_int += amount
-        self._data[key] = str(val_int).encode("utf-8")
-        return val_int
+    async def increment(self, key: str, delta: int) -> int:
+        async with self.lock:
+            self._purge(key)
+            old = self.values.get(key, b"0")
+            try:
+                number = int(old)
+            except ValueError as exc:
+                raise ValueError from exc
+            expiry = self.expirations.get(key)
+            number += delta
+            self.values[key] = str(number).encode()
+            if expiry is not None:
+                self.expirations[key] = expiry
+            return number
