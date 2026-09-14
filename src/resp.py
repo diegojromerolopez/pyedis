@@ -38,7 +38,7 @@ def _line(data: bytes, start: int) -> tuple[bytes, int]:
 def _frame(data: bytes, pos: int) -> tuple[bytes, int]:
     if pos >= len(data):
         raise IncompleteFrame
-    prefix = data[pos:pos + 1]
+    prefix = data[pos : pos + 1]
     line, cursor = _line(data, pos + 1)
     if prefix in (b"+", b"-", b":"):
         return line, cursor
@@ -50,7 +50,7 @@ def _frame(data: bytes, pos: int) -> tuple[bytes, int]:
         if size == -1:
             return b"", cursor
         end = cursor + size
-        if len(data) < end + 2 or data[end:end + 2] != b"\r\n":
+        if len(data) < end + 2 or data[end : end + 2] != b"\r\n":
             raise IncompleteFrame
         return data[cursor:end], end + 2
     if prefix == b"*":

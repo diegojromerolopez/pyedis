@@ -40,18 +40,27 @@ class AOF:
                 op = record["op"]
                 if op == "SET":
                     import asyncio
-                    asyncio.run(store.set(record["key"], record["value"].encode(), record.get("expire_at")))
+
+                    asyncio.run(
+                        store.set(record["key"], record["value"].encode(), record.get("expire_at"))
+                    )
                 elif op == "DEL":
                     import asyncio
+
                     asyncio.run(store.delete([record["key"]]))
                 elif op in ("INCR", "DECR"):
                     import asyncio
+
                     asyncio.run(store.increment(record["key"], 1 if op == "INCR" else -1))
                 elif op == "EXPIRE":
                     import asyncio
-                    asyncio.run(store.set(record["key"], store.values[record["key"]], record["expire_at"]))
+
+                    asyncio.run(
+                        store.set(record["key"], store.values[record["key"]], record["expire_at"])
+                    )
                 elif op == "FLUSHALL":
                     import asyncio
+
                     asyncio.run(store.flush())
             except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                 print("pyedis: ignoring corrupt trailing AOF line", file=sys.stderr)
