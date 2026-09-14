@@ -1,4 +1,6 @@
-.PHONY: install run test lint format e2e
+.PHONY: all install run test lint format e2e
+
+all: test
 
 install:
 	python3 -m pip install -e ".[dev]"
