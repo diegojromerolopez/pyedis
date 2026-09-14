@@ -11,12 +11,15 @@ from .resp import Decoder
 from .store import Store
 
 
-async def client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, dispatcher: Dispatcher) -> None:
+async def client(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter, dispatcher: Dispatcher
+) -> None:
     decoder = Decoder()
     try:
         while True:
             data = await reader.read(65536)
-            if not data: break
+            if not data:
+                break
             for command in decoder.feed(data):
                 reply = await dispatcher.dispatch(command)
                 writer.write(reply)
