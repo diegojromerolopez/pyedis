@@ -1,91 +1,88 @@
-from __future__ import annotations
-
-from dataclasses import dataclass, field
+from typing import Any
 
 
-def simple(value: str) -> bytes:
-    return b"+" + value.encode() + b"\r\n"
-
-
-def error(value: str) -> bytes:
-    return b"-" + value.encode() + b"\r\n"
-
-
-def integer(value: int) -> bytes:
-    return f":{value}\r\n".encode()
-
-
-def bulk(value: bytes | str | None) -> bytes:
-    if value is None:
+def encode_resp(data: Any) -> bytes:
+    if data is None:
         return b"$-1\r\n"
-    raw = value if isinstance(value, bytes) else value.encode()
-    return b"$" + str(len(raw)).encode() + b"\r\n" + raw + b"\r\n"
+    if isinstance(data, bool):
+        return b"+OK\r\n" if data else b"$-1\r\n"
+    if isinstance(data, int):
+        return f":{data}\r\n".encode("utf-8")
+    if isinstance(data, str):
+        encoded = data.encode("utf-8")
+        return f"${len(encoded)}\r\n".encode("utf-8") + encoded + b"\r\n"
+    if isinstance(data, bytes):
+        return f"${len(data)}\r\n".encode("utf-8") + data + b"\r\n"
+    if isinstance(data, list):
+        res = [f"*{len(data)}\r\n".encode("utf-8")]
+        for item in data:
+            res.append(encode_resp(item))
+        return b"".join(res)
+    if isinstance(data, Exception):
+        return f"-ERR {str(data)}\r\n".encode("utf-8")
+    return encode_resp(str(data))
 
 
-def array(values: list[bytes]) -> bytes:
-    return b"*" + str(len(values)).encode() + b"\r\n" + b"".join(values)
+def encode_error(msg: str) -> bytes:
+    return f"-ERR {msg}\r\n".encode("utf-8")
 
 
-@dataclass
-class Decoder:
-    buffer: bytearray = field(default_factory=bytearray)
+def encode_simple_string(msg: str) -> bytes:
+    return f"+{msg}\r\n".encode("utf-8")
 
-    def feed(self, data: bytes) -> list[list[bytes]]:
-        self.buffer.extend(data)
-        result: list[list[bytes]] = []
-        while self.buffer:
-            if self.buffer[:1] == b"*":
-                frame = self._array()
-            else:
-                frame = self._inline()
-            if frame is None:
-                break
-            result.append(frame)
-        return result
 
-    def _line(self, start: int = 0) -> tuple[bytes, int] | None:
-        end = self.buffer.find(b"\r\n", start)
-        if end < 0:
+class RESPParser:
+    def __init__(self) -> None:
+        self._buf = bytearray()
+
+    def feed(self, data: bytes) -> None:
+        self._buf.extend(data)
+
+    def parse_one(self) -> list[bytes] | None:
+        if not self._buf:
             return None
-        return bytes(self.buffer[start:end]), end + 2
+        if self._buf.startswith(b"*"):
+            return self._parse_array()
+        if b"\r\n" in self._buf:
+            idx = self._buf.index(b"\r\n")
+            line = bytes(self._buf[:idx])
+            del self._buf[: idx + 2]
+            return [part for part in line.split(b" ") if part]
+        return None
 
-    def _array(self) -> list[bytes] | None:
-        header = self._line()
-        if header is None:
+    def _parse_array(self) -> list[bytes] | None:
+        idx = self._buf.find(b"\r\n")
+        if idx == -1:
             return None
         try:
-            count = int(header[0][1:])
+            count = int(self._buf[1:idx])
         except ValueError:
-            del self.buffer[: header[1]]
+            del self._buf[: idx + 2]
+            return None
+
+        if count == -1:
+            del self._buf[: idx + 2]
             return []
-        pos = header[1]
-        values: list[bytes] = []
+
+        curr = idx + 2
+        args: list[bytes] = []
         for _ in range(count):
-            if pos >= len(self.buffer) or self.buffer[pos : pos + 1] != b"$":
+            if curr >= len(self._buf):
                 return None
-            line = self._line(pos)
-            if line is None:
+            if self._buf[curr : curr + 1] != b"$":
+                return None
+            next_line = self._buf.find(b"\r\n", curr)
+            if next_line == -1:
                 return None
             try:
-                size = int(line[0][1:])
+                arg_len = int(self._buf[curr + 1 : next_line])
             except ValueError:
                 return None
-            pos = line[1]
-            if size < 0:
-                values.append(b"")
-                continue
-            if len(self.buffer) < pos + size + 2:
+            curr = next_line + 2
+            if len(self._buf) < curr + arg_len + 2:
                 return None
-            if self.buffer[pos + size : pos + size + 2] != b"\r\n":
-                return None
-            values.append(bytes(self.buffer[pos : pos + size]))
-            pos += size + 2
-        del self.buffer[:pos]
-        return values
+            args.append(bytes(self._buf[curr : curr + arg_len]))
+            curr += arg_len + 2
 
-    def _inline(self) -> list[bytes] | None:
-        line = self._line()
-        if line is None:
-            return None
-        del self.buffer[: line[1]]
-        return line[0].split()
+        del self._buf[:curr]
+        return args

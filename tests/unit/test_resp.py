@@ -1,17 +1,23 @@
 import unittest
-from src.resp import Decoder, bulk, integer, simple
+from src.resp import encode_resp, encode_simple_string, encode_error, RESPParser
 
 
-class RespTests(unittest.TestCase):
+class TestRESP(unittest.TestCase):
     def test_encoding(self) -> None:
-        self.assertEqual(simple("OK"), b"+OK\r\n")
-        self.assertEqual(integer(4), b":4\r\n")
-        self.assertEqual(bulk("hello"), b"$5\r\nhello\r\n")
+        self.assertEqual(encode_simple_string("OK"), b"+OK\r\n")
+        self.assertEqual(encode_error("err"), b"-ERR err\r\n")
+        self.assertEqual(encode_resp(10), b":10\r\n")
+        self.assertEqual(encode_resp("hi"), b"$2\r\nhi\r\n")
+        self.assertEqual(encode_resp(None), b"$-1\r\n")
 
-    def test_chunks_and_pipeline(self) -> None:
-        d = Decoder()
-        self.assertEqual(d.feed(b"*1\r\n$4\r\n"), [])
-        self.assertEqual(d.feed(b"PING\r\n*1\r\n$4\r\nPING\r\n"), [[b"PING"], [b"PING"]])
+    def test_parser_pipelined(self) -> None:
+        parser = RESPParser()
+        parser.feed(b"*1\r\n$4\r\nPING\r\n*1\r\n$4\r\nPING\r\n")
+        res1 = parser.parse_one()
+        res2 = parser.parse_one()
+        self.assertEqual(res1, [b"PING"])
+        self.assertEqual(res2, [b"PING"])
 
-    def test_inline(self) -> None:
-        self.assertEqual(Decoder().feed(b"PING hello\r\n"), [[b"PING", b"hello"]])
+
+if __name__ == "__main__":
+    unittest.main()

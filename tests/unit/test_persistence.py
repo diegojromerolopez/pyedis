@@ -1,17 +1,28 @@
-import asyncio, tempfile, unittest
-from pathlib import Path
-from src.persistence import AOF
+import unittest
+import tempfile
+import shutil
 from src.store import Store
+from src.persistence import AOFLogger
 
 
-class PersistenceTests(unittest.IsolatedAsyncioTestCase):
-    async def test_round_trip(self) -> None:
-        with tempfile.TemporaryDirectory() as d:
-            a = AOF(str(Path(d) / "dump.aof"), False)
-            s = Store()
-            await s.set("x", "1")
-            a.append({"op": "SET", "key": "x", "value": "1", "expire_at": None})
-            a.close()
-            b = Store()
-            await AOF(str(Path(d) / "dump.aof"), False).replay(b)
-            self.assertEqual(await b.get("x"), "1")
+class TestPersistence(unittest.TestCase):
+    def setUp(self) -> None:
+        self.data_dir = tempfile.mkdtemp()
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.data_dir)
+
+    def test_replay(self) -> None:
+        aof = AOFLogger(self.data_dir, fsync=False)
+        aof.append({"op": "SET", "key": "k", "value": "v"})
+        aof.close()
+
+        store = Store()
+        aof2 = AOFLogger(self.data_dir, fsync=False)
+        aof2.replay(store)
+        self.assertEqual(store.get("k"), "v")
+        aof2.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

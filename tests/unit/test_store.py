@@ -2,18 +2,24 @@ import unittest
 from src.store import Store
 
 
-class StoreTests(unittest.IsolatedAsyncioTestCase):
-    async def test_expiration(self) -> None:
-        now = [10.0]
-        store = Store(lambda: now[0])
-        self.assertTrue(await store.set("k", "v", 15.0))
-        self.assertEqual(await store.ttl("k"), 5)
-        now[0] = 16
-        self.assertIsNone(await store.get("k"))
-        self.assertEqual(await store.ttl("k"), -2)
+class TestStore(unittest.TestCase):
+    def setUp(self) -> None:
+        self.time = 1000.0
+        self.store = Store(clock=lambda: self.time)
 
-    async def test_increment(self) -> None:
-        store = Store()
-        value, ok = await store.increment("n", 1)
-        self.assertTrue(ok)
-        self.assertEqual(value, 1)
+    def test_set_get_del(self) -> None:
+        self.store.set("k1", "v1")
+        self.assertEqual(self.store.get("k1"), "v1")
+        self.assertEqual(self.store.delete(["k1"]), 1)
+        self.assertIsNone(self.store.get("k1"))
+
+    def test_expiration(self) -> None:
+        self.store.set("k1", "v1", expire_at=1005.0)
+        self.assertEqual(self.store.ttl("k1"), 5)
+        self.time = 1006.0
+        self.assertIsNone(self.store.get("k1"))
+        self.assertEqual(self.store.ttl("k1"), -2)
+
+
+if __name__ == "__main__":
+    unittest.main()

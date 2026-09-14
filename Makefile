@@ -1,7 +1,4 @@
-.PHONY: build install run test lint format e2e
-
-build:
-	python3 -m compileall -q src
+.PHONY: install run test lint format e2e
 
 install:
 	python3 -m pip install -e ".[dev]"

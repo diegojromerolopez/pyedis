@@ -1,59 +1,68 @@
-from __future__ import annotations
-
 import asyncio
 import os
-import signal
 import sys
+from src.store import Store
+from src.persistence import AOFLogger
+from src.commands import CommandDispatcher
+from src.resp import RESPParser
 
-from .commands import Dispatcher
-from .persistence import AOF
-from .resp import Decoder
-from .store import Store
 
-
-async def client(
-    reader: asyncio.StreamReader, writer: asyncio.StreamWriter, dispatcher: Dispatcher
+async def handle_client(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    dispatcher: CommandDispatcher,
 ) -> None:
-    decoder = Decoder()
+    parser = RESPParser()
     try:
-        while True:
-            data = await reader.read(65536)
+        while not reader.at_eof():
+            data = await reader.read(1024)
             if not data:
                 break
-            for command in decoder.feed(data):
-                reply = await dispatcher.dispatch(command)
-                writer.write(reply)
-                await writer.drain()
-                if command and command[0].upper() == b"QUIT":
+            parser.feed(data)
+            while True:
+                args = parser.parse_one()
+                if args is None:
+                    break
+                resp, close_conn = await dispatcher.dispatch(args)
+                if resp:
+                    writer.write(resp)
+                    await writer.drain()
+                if close_conn:
+                    writer.close()
+                    await writer.wait_closed()
                     return
+    except Exception as e:
+        sys.stderr.write(f"pyedis: client error {e}\n")
     finally:
         writer.close()
-        await writer.wait_closed()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
 
 
 async def run_server() -> None:
-    port = int(os.getenv("PORT", "6379"))
-    data_dir = os.getenv("PYEDIS_DATA_DIR", "./data")
-    fsync = os.getenv("PYEDIS_AOF_FSYNC", "true").lower() == "true"
+    port = int(os.environ.get("PORT", "6379"))
+    data_dir = os.environ.get("PYEDIS_DATA_DIR", "./data")
+    fsync = os.environ.get("PYEDIS_AOF_FSYNC", "true").lower() == "true"
+
     store = Store()
-    aof = AOF(os.path.join(data_dir, "dump.aof"), fsync)
-    await aof.replay(store)
-    dispatcher = Dispatcher(store, aof)
-    server = await asyncio.start_server(lambda r, w: client(r, w, dispatcher), "0.0.0.0", port)
-    print(f"pyedis: listening on {port}")
-    stop = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, stop.set)
+    aof = AOFLogger(data_dir=data_dir, fsync=fsync)
+    aof.replay(store)
+    dispatcher = CommandDispatcher(store, aof)
+
+    server = await asyncio.start_server(
+        lambda r, w: handle_client(r, w, dispatcher), "0.0.0.0", port
+    )
+    sys.stdout.write(f"pyedis: server listening on port {port}\n")
+    sys.stdout.flush()
+
     async with server:
-        await stop.wait()
-    server.close()
-    await server.wait_closed()
+        await server.serve_forever()
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(run_server())
-    except Exception as exc:
-        print(f"pyedis: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+    except (KeyboardInterrupt, SystemExit):
+        sys.stdout.write("pyedis: shutting down\n")

@@ -3,8 +3,9 @@ services:
     build: .
     command: ["python3", "-m", "src.main"]
     environment:
+      PYEDIS_DATA_DIR: "/data"
       PORT: "6379"
-      PYEDIS_DATA_DIR: /data
+      PYEDIS_AOF_FSYNC: "true"
     volumes:
       - data:/data
     ports:
@@ -14,6 +15,6 @@ services:
     depends_on:
       - api
     environment:
-      REDIS_URL: redis://api:6379
+      REDIS_URL: "redis://api:6379"
 volumes:
   data:
