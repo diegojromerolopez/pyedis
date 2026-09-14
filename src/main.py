@@ -8,7 +8,9 @@ from src.resp import RESPDecoder
 from src.store import Store
 
 
-async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, dispatcher: CommandDispatcher) -> None:
+async def handle_client(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter, dispatcher: CommandDispatcher
+) -> None:
     decoder = RESPDecoder()
     try:
         while True:
@@ -50,7 +52,9 @@ async def run_server() -> None:
         sys.stderr.write(f"pyedis: fatal startup error: {e}\n")
         sys.exit(1)
 
-    server = await asyncio.start_server(lambda r, w: handle_client(r, w, dispatcher), "0.0.0.0", port)
+    server = await asyncio.start_server(
+        lambda r, w: handle_client(r, w, dispatcher), "0.0.0.0", port
+    )
     sys.stdout.write(f"pyedis: server listening on port {port}\n")
     sys.stdout.flush()
 

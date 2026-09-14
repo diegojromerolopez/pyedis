@@ -33,19 +33,25 @@ class CommandDispatcher:
         async with self.store.lock:
             if cmd == "PING":
                 if len(raw_args) > 1:
-                    return encode_error("ERR", "wrong number of arguments for 'ping' command"), False
+                    return encode_error(
+                        "ERR", "wrong number of arguments for 'ping' command"
+                    ), False
                 if len(raw_args) == 0:
                     return encode_simple_string("PONG"), False
                 return encode_bulk_string(raw_args[0]), False
 
             elif cmd == "ECHO":
                 if len(raw_args) != 1:
-                    return encode_error("ERR", "wrong number of arguments for 'echo' command"), False
+                    return encode_error(
+                        "ERR", "wrong number of arguments for 'echo' command"
+                    ), False
                 return encode_bulk_string(raw_args[0]), False
 
             elif cmd == "QUIT":
                 if len(raw_args) != 0:
-                    return encode_error("ERR", "wrong number of arguments for 'quit' command"), False
+                    return encode_error(
+                        "ERR", "wrong number of arguments for 'quit' command"
+                    ), False
                 return encode_simple_string("OK"), True
 
             elif cmd == "SET":
@@ -69,14 +75,18 @@ class CommandDispatcher:
 
             elif cmd == "EXISTS":
                 if len(raw_args) < 1:
-                    return encode_error("ERR", "wrong number of arguments for 'exists' command"), False
+                    return encode_error(
+                        "ERR", "wrong number of arguments for 'exists' command"
+                    ), False
                 keys = [k.decode("utf-8") for k in raw_args]
                 cnt = self.store.exists(keys)
                 return encode_integer(cnt), False
 
             elif cmd == "INCR":
                 if len(raw_args) != 1:
-                    return encode_error("ERR", "wrong number of arguments for 'incr' command"), False
+                    return encode_error(
+                        "ERR", "wrong number of arguments for 'incr' command"
+                    ), False
                 key = raw_args[0].decode("utf-8")
                 try:
                     res = self.store.incrby(key, 1)
@@ -88,7 +98,9 @@ class CommandDispatcher:
 
             elif cmd == "DECR":
                 if len(raw_args) != 1:
-                    return encode_error("ERR", "wrong number of arguments for 'decr' command"), False
+                    return encode_error(
+                        "ERR", "wrong number of arguments for 'decr' command"
+                    ), False
                 key = raw_args[0].decode("utf-8")
                 try:
                     res = self.store.incrby(key, -1)
@@ -100,7 +112,9 @@ class CommandDispatcher:
 
             elif cmd == "EXPIRE":
                 if len(raw_args) != 2:
-                    return encode_error("ERR", "wrong number of arguments for 'expire' command"), False
+                    return encode_error(
+                        "ERR", "wrong number of arguments for 'expire' command"
+                    ), False
                 key = raw_args[0].decode("utf-8")
                 try:
                     seconds = int(raw_args[1].decode("utf-8"))
@@ -123,7 +137,9 @@ class CommandDispatcher:
 
             elif cmd == "KEYS":
                 if len(raw_args) != 1:
-                    return encode_error("ERR", "wrong number of arguments for 'keys' command"), False
+                    return encode_error(
+                        "ERR", "wrong number of arguments for 'keys' command"
+                    ), False
                 pat = raw_args[0].decode("utf-8")
                 found = self.store.keys(pat)
                 return encode_array([k.encode("utf-8") for k in found]), False

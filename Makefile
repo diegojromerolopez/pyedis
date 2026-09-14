@@ -1,4 +1,6 @@
-.PHONY: install run test lint format e2e
+.PHONY: all install run test lint format e2e
+
+all: test
 
 install:
 	python3 -m pip install -e ".[dev]"
@@ -7,7 +9,7 @@ run:
 	python3 -m src.main
 
 test:
-	python3 -m unittest discover -s tests -v
+	python3 -m unittest discover -s tests -t . -v
 
 lint:
 	ruff check src tests
