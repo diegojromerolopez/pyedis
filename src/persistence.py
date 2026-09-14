@@ -43,7 +43,11 @@ class AOFLogger:
                     break
                 op = rec.get("op")
                 if op == "SET":
-                    val = rec["value"].encode("utf-8") if isinstance(rec["value"], str) else rec["value"]
+                    val = (
+                        rec["value"].encode("utf-8")
+                        if isinstance(rec["value"], str)
+                        else rec["value"]
+                    )
                     store.set(rec["key"], val, rec.get("expire_at"))
                 elif op == "DEL":
                     store.delete([rec["key"]])

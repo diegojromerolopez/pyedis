@@ -7,7 +7,7 @@ run:
 	python3 -m src.main
 
 test:
-	python3 -m unittest discover -s tests -v
+	python3 -m unittest discover -s tests -t . -v
 
 lint:
 	ruff check src tests
