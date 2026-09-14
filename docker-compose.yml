@@ -3,9 +3,8 @@ services:
     build: .
     command: ["python3", "-m", "src.main"]
     environment:
-      PYEDIS_DATA_DIR: /data
       PORT: "6379"
-      PYEDIS_AOF_FSYNC: "true"
+      PYEDIS_DATA_DIR: /data
     volumes:
       - data:/data
     ports:

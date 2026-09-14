@@ -1,11 +1,20 @@
 # pyedis
 
-A small Redis-compatible RESP2 server implemented with Python asyncio.
+pyedis is a small Redis-compatible RESP2 key-value server implemented with Python asyncio.
 
 ## Run
 
-`make install && make run` starts port 6379. Use `redis-cli ping`, `redis-cli set key value`, `redis-cli get key`, and `redis-cli ttl key`.
+```sh
+make install
+make run
+redis-cli -p 6379 set greeting hello
+redis-cli -p 6379 get greeting
+```
 
-Supported commands: PING, ECHO, QUIT, SET (EX/PX/NX/XX), GET, DEL, EXISTS, INCR, DECR, EXPIRE, TTL, KEYS, and FLUSHALL. Replies use RESP simple strings, errors, integers, bulk strings, and arrays. State is appended to `data/dump.aof`; expiration records contain absolute Unix timestamps.
+Supported commands are `PING`, `ECHO`, `QUIT`, `SET`, `GET`, `DEL`, `EXISTS`, `INCR`, `DECR`, `EXPIRE`, `TTL`, `KEYS`, and `FLUSHALL`. `SET` supports `EX`, `PX`, `NX`, and `XX`.
 
-`make test`, `make lint`, and `make e2e` run verification targets.
+State is persisted in `data/dump.aof` using JSON lines and absolute expiration timestamps. Configure `PORT`, `PYEDIS_DATA_DIR`, and `PYEDIS_AOF_FSYNC`.
+
+RESP uses simple strings (`+OK`), errors (`-ERR ...`), integers (`:1`), bulk strings (`$3`), and arrays (`*2`), each terminated by CRLF.
+
+Run checks with `make build`, `make test`, `make lint`, and `make e2e`.

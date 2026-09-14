@@ -1,19 +1,21 @@
+import asyncio
 import unittest
 from src.store import Store
 
-
 class StoreTests(unittest.IsolatedAsyncioTestCase):
     async def test_expiration(self) -> None:
-        now = [10.0]
+        now = [100.0]
         store = Store(lambda: now[0])
-        self.assertTrue(await store.set("k", "v", 15.0))
+        await store.set("k", b"v", 105.0)
         self.assertEqual(await store.ttl("k"), 5)
-        now[0] = 16
+        now[0] = 106
         self.assertIsNone(await store.get("k"))
         self.assertEqual(await store.ttl("k"), -2)
 
-    async def test_increment(self) -> None:
+    async def test_increment_and_keys(self) -> None:
         store = Store()
-        value, ok = await store.increment("n", 1)
-        self.assertTrue(ok)
-        self.assertEqual(value, 1)
+        self.assertEqual(await store.increment("n", 1), 1)
+        self.assertEqual(await store.keys("*"), ["n"])
+
+if __name__ == "__main__":
+    unittest.main()

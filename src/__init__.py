@@ -1,1 +1,1 @@
-"""pyedis Redis-compatible in-memory server."""
+"""pyedis package."""

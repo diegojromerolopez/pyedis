@@ -1,5 +1,3 @@
-# API and architecture
+# API reference
 
-`resp.py` incrementally decodes arrays and inline commands. `store.py` owns locked values and absolute expiration timestamps. `commands.py` validates and dispatches commands. `persistence.py` writes JSON-lines AOF records. `main.py` composes the asyncio server.
-
-Bulk values are binary-safe on the wire. AOF replay ignores malformed records and preserves absolute expiration times across restart.
+Commands follow Redis syntax. Missing values are encoded as null bulk strings and integer counters use RESP integer frames. Expirations are stored as absolute Unix timestamps, so replay does not renew a key's lifetime. The TCP server accepts both RESP arrays and CRLF-terminated inline commands.
