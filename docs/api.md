@@ -1,5 +1,5 @@
-# API and deployment
+# API and architecture
 
-Supported commands are PING, ECHO, QUIT, SET, GET, DEL, EXISTS, INCR, DECR, EXPIRE, TTL, KEYS, and FLUSHALL. Requests may be RESP arrays or CRLF-terminated inline commands. Replies use RESP simple strings, errors, integers, bulk strings, and arrays.
+`resp.py` incrementally decodes arrays and inline commands. `store.py` owns locked values and absolute expiration timestamps. `commands.py` validates and dispatches commands. `persistence.py` writes JSON-lines AOF records. `main.py` composes the asyncio server.
 
-Expiration timestamps are absolute Unix timestamps in `data/dump.aof`; replay discards already-expired values. Run with `make run`, select a port with `PORT`, and select the data directory with `PYEDIS_DATA_DIR`. Use `redis-cli -p 6379` for interoperability.
+Bulk values are binary-safe on the wire. AOF replay ignores malformed records and preserves absolute expiration times across restart.

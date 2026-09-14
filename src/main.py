@@ -1,52 +1,35 @@
+"""pyedis asyncio TCP entrypoint."""
 from __future__ import annotations
-
-import asyncio
-import os
+import asyncio, os
 from .commands import Dispatcher
 from .persistence import AOF
 from .resp import Decoder
 from .store import Store
 
-
-async def client(
-    reader: asyncio.StreamReader, writer: asyncio.StreamWriter, dispatcher: Dispatcher
-) -> None:
+async def client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, dispatcher: Dispatcher) -> None:
     decoder = Decoder()
     try:
-        while not reader.at_eof():
-            data = await reader.read(65536)
-            if not data:
-                break
+        while data := await reader.read(65536):
             for command in decoder.feed(data):
                 reply, close = await dispatcher.dispatch(command)
-                writer.write(reply)
-                await writer.drain()
-                if close:
-                    return
+                writer.write(reply); await writer.drain()
+                if close: return
     finally:
-        writer.close()
-        await writer.wait_closed()
+        writer.close(); await writer.wait_closed()
 
-
-async def run_server() -> None:
-    store = Store()
-    directory = os.environ.get("PYEDIS_DATA_DIR", "./data")
-    fsync = os.environ.get("PYEDIS_AOF_FSYNC", "true").lower() == "true"
-    aof = AOF(os.path.join(directory, "dump.aof"), fsync)
-    aof.replay(store)
-    port = int(os.environ.get("PORT", "6379"))
-    server = await asyncio.start_server(
-        lambda r, w: client(r, w, Dispatcher(store, aof)), "0.0.0.0", port
-    )
+async def run_server(host: str = '0.0.0.0', port: int | None = None) -> None:
+    port = port if port is not None else int(os.getenv('PORT', '6379'))
+    directory = os.getenv('PYEDIS_DATA_DIR', './data')
+    aof = AOF(os.path.join(directory, 'dump.aof'), os.getenv('PYEDIS_AOF_FSYNC', 'true').lower() == 'true')
+    store = Store(); await aof.replay(store); dispatcher = Dispatcher(store, aof)
+    server = await asyncio.start_server(lambda r, w: client(r, w, dispatcher), host, port)
     try:
-        async with server:
-            await server.serve_forever()
+        async with server: await server.serve_forever()
     finally:
-        aof.close()
+        aof.close(); server.close(); await server.wait_closed()
 
+def main() -> None:
+    try: asyncio.run(run_server())
+    except KeyboardInterrupt: pass
 
-if __name__ == "__main__":
-    try:
-        asyncio.run(run_server())
-    except KeyboardInterrupt:
-        pass
+if __name__ == '__main__': main()
