@@ -1,0 +1,3 @@
+# Command API
+
+Supported Redis commands: PING, ECHO, QUIT, SET, GET, DEL, EXISTS, INCR, DECR, EXPIRE, TTL, KEYS, FLUSHALL.

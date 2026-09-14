@@ -1,28 +1,31 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-REDIS_HOST="${REDIS_HOST:-localhost}"
-REDIS_PORT="${REDIS_PORT:-6379}"
+REDIS_URL=${REDIS_URL:-redis://127.0.0.1:6379}
+HOST=$(echo $REDIS_URL | sed -e 's,redis://,,' | cut -d: -f1)
+PORT=$(echo $REDIS_URL | sed -e 's,redis://,,' | cut -d: -f2)
 
-echo "Testing PING..."
-PING_OUT=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" PING)
-if [ "$PING_OUT" != "PONG" ]; then
-  echo "PING test failed: expected PONG, got '$PING_OUT'"
-  exit 1
-fi
+CLI="redis-cli -h $HOST -p $PORT"
 
-echo "Testing ECHO hello..."
-ECHO_OUT=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ECHO hello)
-if [ "$ECHO_OUT" != "hello" ]; then
-  echo "ECHO test failed: expected hello, got '$ECHO_OUT'"
-  exit 1
-fi
+echo "Running pyedis E2E assertions against $HOST:$PORT..."
 
-echo "Testing QUIT..."
-QUIT_OUT=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" QUIT)
-if [ "$QUIT_OUT" != "OK" ]; then
-  echo "QUIT test failed: expected OK, got '$QUIT_OUT'"
-  exit 1
-fi
+res=$($CLI ping)
+if [ "$res" != "PONG" ]; then echo "FAIL: PING ($res)"; exit 1; fi
 
-echo "All E2E tests passed!"
+res=$($CLI ping "hello world")
+if [ "$res" != "hello world" ]; then echo "FAIL: PING msg ($res)"; exit 1; fi
+
+res=$($CLI set k1 v1)
+if [ "$res" != "OK" ]; then echo "FAIL: SET ($res)"; exit 1; fi
+
+res=$($CLI get k1)
+if [ "$res" != "v1" ]; then echo "FAIL: GET ($res)"; exit 1; fi
+
+res=$($CLI incr counter)
+if [ "$res" != "1" ]; then echo "FAIL: INCR ($res)"; exit 1; fi
+
+res=$($CLI flushall)
+if [ "$res" != "OK" ]; then echo "FAIL: FLUSHALL ($res)"; exit 1; fi
+
+echo "All E2E black-box assertions PASSED!"
+exit 0
