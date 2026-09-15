@@ -1,4 +1,4 @@
-"""Append-only persistence."""
+""" append-only JSON persistence."""
 from __future__ import annotations
 
 import json
@@ -6,52 +6,49 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .store import Store
-
-
 class AOF:
-    def __init__(self, directory: str, fsync: bool = True) -> None:
-        self.path = Path(directory) / "dump.aof"
-        self.fsync_enabled = fsync
+    def __init__(self, directory: str, fsync: bool = True, clock: callable | None = None) -> None:
+        self.path = Path(directory) / 'dump.aof'
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.touch(exist_ok=True)
+        self.fsync = fsync
+        self.clock = clock
 
     def append(self, record: dict[str, Any]) -> None:
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, separators=(",", ":")) + "\n")
+        with self.path.open('ab') as handle:
+            handle.write(json.dumps(record, separators=(',', ':')).encode() + b'\n')
             handle.flush()
-            if self.fsync_enabled:
+            if self.fsync:
                 os.fsync(handle.fileno())
 
-    def flush(self) -> None:
-        self.path.write_text("", encoding="utf-8")
-        if self.fsync_enabled:
-            with self.path.open("a") as handle:
-                os.fsync(handle.fileno())
+    def truncate(self) -> None:
+        self.path.write_bytes(b'')
 
-    def replay(self, store: Store) -> None:
-        lines = self.path.read_text(encoding="utf-8").splitlines()
-        for index, line in enumerate(lines):
+    def load(self, store: Any) -> None:
+        if not self.path.exists():
+            return
+        lines = self.path.read_bytes().splitlines()
+        for number, raw in enumerate(lines):
             try:
-                record = json.loads(line)
-                op = record["op"]
-                if op == "SET":
-                    store.set(record["key"], record["value"], record.get("expire_at"))
-                elif op == "DEL":
-                    store.delete([record["key"]])
-                elif op in ("INCR", "DECR"):
-                    item = store.get(record["key"])
-                    value = int(item.value) if item else 0
-                    value += 1 if op == "INCR" else -1
-                    store.set(record["key"], str(value), item.expire_at if item else None)
-                elif op == "EXPIRE":
-                    item = store.get(record["key"])
-                    if item:
-                        item.expire_at = record["expire_at"]
-                elif op == "FLUSHALL":
-                    store.flush()
-            except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-                if index == len(lines) - 1:
-                    print("pyedis: ignoring corrupt trailing AOF line")
+                item = json.loads(raw)
+                op = item['op']
+                if op == 'SET':
+                    expiry = item.get('expire_at')
+                    if expiry is None or self.clock is None or expiry > self.clock():
+                        store.set(item['key'].encode(), item['value'].encode(), expiry)
+                elif op == 'DEL':
+                    store.delete(item['key'].encode())
+                elif op in ('INCR', 'DECR'):
+                    key = item['key'].encode(); old = store.get(key)
+                    value = int(old or b'0') + (1 if op == 'INCR' else -1)
+                    store.set(key, str(value).encode())
+                elif op == 'EXPIRE':
+                    key = item['key'].encode()
+                    if store.get(key) is not None:
+                        store.data[key].expire_at = item['expire_at']
+                elif op == 'FLUSHALL':
+                    store.clear()
+            except Exception as exc:
+                if number == len(lines) - 1:
+                    print('pyedis: ignoring corrupt trailing AOF line')
                     return
-                raise RuntimeError(f"corrupt AOF line: {exc}") from exc
+                raise RuntimeError(f'corrupt AOF line {number + 1}') from exc

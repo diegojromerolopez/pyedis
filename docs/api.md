@@ -1,3 +1,3 @@
 # API
 
-pyedis speaks Redis RESP2 over TCP and stores string keys and values in memory. Expiration is lazy and durable mutations are appended to the configured AOF.
+pyedis accepts RESP2 arrays and inline commands over TCP. The store is serialized by one asynchronous lock and mutations are persisted to an append-only JSON file. Expiration is lazy and configuration is provided by environment variables.
