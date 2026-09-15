@@ -6,9 +6,11 @@ services:
       PORT: 6379
       PYEDIS_DATA_DIR: /data
       PYEDIS_AOF_FSYNC: "true"
-    ports: ["6379:6379"]
+    ports:
+      - "6379:6379"
   e2e:
     build: tests/e2e
-    depends_on: [api]
+    depends_on:
+      - api
     environment:
       REDIS_URL: redis://api:6379

@@ -1,4 +1,4 @@
-"""Expiring in-memory key-value store."""
+"""In-memory key-value store."""
 from __future__ import annotations
 
 import fnmatch
@@ -9,50 +9,66 @@ from collections.abc import Callable
 
 @dataclass
 class Entry:
-    value: bytes
+    value: str
     expire_at: float | None = None
 
 
 class Store:
     def __init__(self, clock: Callable[[], float] = time.time) -> None:
         self.clock = clock
-        self.data: dict[bytes, Entry] = {}
+        self.items: dict[str, Entry] = {}
 
-    def _expired(self, key: bytes) -> bool:
-        entry = self.data.get(key)
-        if entry is not None and entry.expire_at is not None and entry.expire_at <= self.clock():
-            del self.data[key]
+    def _expired(self, key: str) -> bool:
+        item = self.items.get(key)
+        if item is not None and item.expire_at is not None and item.expire_at <= self.clock():
+            del self.items[key]
             return True
-        return entry is None
+        return item is None
 
-    def get(self, key: bytes) -> bytes | None:
-        return None if self._expired(key) else self.data[key].value
+    def get(self, key: str) -> Entry | None:
+        self._expired(key)
+        return self.items.get(key)
 
-    def set(self, key: bytes, value: bytes, expire_at: float | None = None) -> None:
-        self.data[key] = Entry(value, expire_at)
-
-    def delete(self, key: bytes) -> bool:
-        if self._expired(key):
+    def set(self, key: str, value: str, expire_at: float | None = None, condition: str | None = None) -> bool:
+        exists = self.get(key) is not None
+        if condition == "NX" and exists or condition == "XX" and not exists:
             return False
-        del self.data[key]
+        self.items[key] = Entry(value, expire_at)
         return True
 
-    def exists(self, key: bytes) -> bool:
-        return not self._expired(key)
+    def delete(self, keys: list[str]) -> int:
+        count = 0
+        for key in keys:
+            if self.get(key) is not None:
+                del self.items[key]
+                count += 1
+        return count
 
-    def sweep(self) -> None:
-        for key in list(self.data):
-            self._expired(key)
+    def exists(self, key: str) -> bool:
+        return self.get(key) is not None
 
-    def keys(self, pattern: bytes) -> list[bytes]:
-        self.sweep()
-        expression = pattern.decode("latin1")
-        return sorted((key for key in self.data if fnmatch.fnmatchcase(key.decode("latin1"), expression)))
+    def expire(self, key: str, seconds: int) -> bool:
+        item = self.get(key)
+        if item is None:
+            return False
+        if seconds <= 0:
+            del self.items[key]
+        else:
+            item.expire_at = self.clock() + seconds
+        return True
 
-    def ttl(self, key: bytes) -> int:
-        if self._expired(key):
+    def ttl(self, key: str) -> int:
+        item = self.get(key)
+        if item is None:
             return -2
-        expiry = self.data[key].expire_at
-        if expiry is None:
+        if item.expire_at is None:
             return -1
-        return max(0, int(expiry - self.clock()))
+        return max(0, int(item.expire_at - self.clock()))
+
+    def keys(self, pattern: str) -> list[str]:
+        for key in list(self.items):
+            self._expired(key)
+        return sorted(key for key in self.items if fnmatch.fnmatchcase(key, pattern))
+
+    def flush(self) -> None:
+        self.items.clear()

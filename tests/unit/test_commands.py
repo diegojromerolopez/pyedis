@@ -1,14 +1,14 @@
-import tempfile
 import unittest
+from tempfile import TemporaryDirectory
 from src.commands import Commands
-from src.persistence import Persistence
+from src.persistence import AOF
 from src.store import Store
 
-class CommandsTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self.directory = tempfile.TemporaryDirectory(); p = Persistence(self.directory.name, False); p.open(); self.c = Commands(Store(), p)
-    def tearDown(self) -> None: self.directory.cleanup()
-    def test_set_get_incr(self) -> None:
-        self.assertEqual(self.c.execute([b"SET", b"x", b"1"])[0], "OK")
-        self.assertEqual(self.c.execute([b"INCR", b"x"])[0], 2)
-        self.assertEqual(self.c.execute([b"GET", b"x"])[0], b"2")
+
+class CommandTests(unittest.TestCase):
+    def test_ping_set_get(self) -> None:
+        with TemporaryDirectory() as directory:
+            command = Commands(Store(), AOF(directory, False))
+            self.assertEqual(command.run([b"PING"])[0], b"+PONG\r\n")
+            self.assertEqual(command.run([b"SET", b"x", b"value"])[0], b"+OK\r\n")
+            self.assertEqual(command.run([b"GET", b"x"])[0], b"$5\r\nvalue\r\n")

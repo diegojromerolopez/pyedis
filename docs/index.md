@@ -1,3 +1,3 @@
 # pyedis
 
-See [API](api.md) for protocol and command details.
+See the project README and [API](api.md).

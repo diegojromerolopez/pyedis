@@ -1,91 +1,65 @@
 """Command execution."""
 from __future__ import annotations
 
-import time
-from .persistence import Persistence
-from .resp import RespError
+import re
+from typing import Any
+
+from .persistence import AOF
+from .resp import encode, error, simple
 from .store import Store
+
+_INT = re.compile(r"^-?[0-9]+$")
 
 
 class Commands:
-    def __init__(self, store: Store, persistence: Persistence) -> None:
-        self.store, self.persistence = store, persistence
+    def __init__(self, store: Store, aof: AOF) -> None:
+        self.store, self.aof = store, aof
 
-    def execute(self, args: list[bytes]) -> tuple[object, bool]:
-        if not args:
-            return RespError("ERR empty command"), False
-        name = args[0].decode("ascii", "replace").upper()
-        rest = args[1:]
-        if name == "PING":
-            return (b"PONG" if not rest else rest[0], False) if len(rest) <= 1 else (self._arity("ping"), False)
-        if name == "ECHO":
-            return (rest[0], False) if len(rest) == 1 else (self._arity("echo"), False)
-        if name == "QUIT":
-            return ("OK", True) if not rest else (self._arity("quit"), False)
+    def run(self, raw: list[object]) -> tuple[bytes, bool]:
+        if not raw or not isinstance(raw[0], (bytes, str)):
+            return error("ERR protocol error"), True
+        name = raw[0].decode(errors="replace") if isinstance(raw[0], bytes) else raw[0]
+        name = name.upper()
+        args = [x if isinstance(x, str) else x.decode(errors="surrogateescape") for x in raw[1:] if isinstance(x, (bytes, str))]
+        arities = {"PING": (0, 1), "ECHO": (1, 1), "QUIT": (0, 0), "GET": (1, 1), "DEL": (1, 9999), "EXISTS": (1, 9999), "INCR": (1, 1), "DECR": (1, 1), "EXPIRE": (2, 2), "TTL": (1, 1), "KEYS": (1, 1), "FLUSHALL": (0, 0), "SET": (2, 9999)}
+        if name not in arities:
+            return error(f"ERR unknown command '{name}'"), False
+        low, high = arities[name]
+        if not low <= len(args) <= high:
+            return error(f"ERR wrong number of arguments for '{name.lower()}' command"), False
+        if name == "PING": return (simple("PONG") if not args else encode(args[0])), False
+        if name == "ECHO": return encode(args[0]), False
+        if name == "QUIT": return simple("OK"), True
         if name == "GET":
-            return (self.store.get(rest[0]) if len(rest) == 1 else self._arity("get"), False)
-        if name in ("DEL", "EXISTS"):
-            if not rest:
-                return self._arity(name.lower()), False
-            count = sum(self.store.delete(k) for k in rest) if name == "DEL" else sum(self.store.exists(k) for k in rest)
-            if name == "DEL" and count:
-                self.persistence.append({"op": "DEL", "key": rest[0].decode()})
-            return count, False
-        if name == "SET":
-            return self._set(rest)
+            item = self.store.get(args[0]); return encode(item.value if item else None), False
+        if name == "DEL":
+            count = self.store.delete(args); 
+            if count: self.aof.append({"op":"DEL","key":args[0]})
+            return encode(count), False
+        if name == "EXISTS": return encode(sum(self.store.exists(key) for key in args)), False
         if name in ("INCR", "DECR"):
-            return self._incr(name, rest)
+            item = self.store.get(args[0]); old = item.value if item else "0"
+            try: value = int(old) + (1 if name == "INCR" else -1)
+            except ValueError: return error("ERR value is not an integer or out of range"), False
+            self.store.set(args[0], str(value), item.expire_at if item else None); self.aof.append({"op":name,"key":args[0]})
+            return encode(value), False
         if name == "EXPIRE":
-            return self._expire(rest)
-        if name == "TTL":
-            return (self.store.ttl(rest[0]) if len(rest) == 1 else self._arity("ttl"), False)
-        if name == "KEYS":
-            return (self.store.keys(rest[0]) if len(rest) == 1 else self._arity("keys"), False)
-        if name == "FLUSHALL":
-            if rest:
-                return self._arity("flushall"), False
-            self.store.data.clear(); self.persistence.append({"op": "FLUSHALL"}); self.persistence.flush()
-            return "OK", False
-        return RespError(f"ERR unknown command '{name}'"), False
-
-    def _arity(self, name: str) -> RespError:
-        return RespError(f"ERR wrong number of arguments for '{name}' command")
-
-    def _set(self, args: list[bytes]) -> tuple[object, bool]:
-        if len(args) < 2:
-            return RespError("ERR syntax error"), False
-        expiry: float | None = None; nx = xx = False; i = 2
-        try:
-            while i < len(args):
-                option = args[i].upper()
-                if option in (b"EX", b"PX") and i + 1 < len(args):
-                    seconds = int(args[i + 1]); expiry = time.time() + seconds * (1 if option == b"EX" else .001); i += 2
-                    if seconds <= 0: raise ValueError
-                elif option == b"NX" and not nx and not xx: nx = True; i += 1
-                elif option == b"XX" and not nx and not xx: xx = True; i += 1
-                else: return RespError("ERR syntax error"), False
-        except ValueError:
-            return RespError("ERR value is not an integer or out of range"), False
-        present = self.store.exists(args[0])
-        if (nx and present) or (xx and not present): return None, False
-        self.store.set(args[0], args[1], expiry)
-        self.persistence.append({"op":"SET","key":args[0].decode(),"value":args[1].decode(),"expire_at":expiry})
-        return "OK", False
-
-    def _incr(self, name: str, args: list[bytes]) -> tuple[object, bool]:
-        if len(args) != 1: return self._arity(name.lower()), False
-        old = self.store.get(args[0]) or b"0"
-        try: value = int(old) + (1 if name == "INCR" else -1)
-        except ValueError: return RespError("ERR value is not an integer or out of range"), False
-        expiry = self.store.data.get(args[0]).expire_at if args[0] in self.store.data else None
-        self.store.set(args[0], str(value).encode(), expiry); self.persistence.append({"op":name,"key":args[0].decode()})
-        return value, False
-
-    def _expire(self, args: list[bytes]) -> tuple[object, bool]:
-        if len(args) != 2: return self._arity("expire"), False
-        try: seconds = int(args[1])
-        except ValueError: return RespError("ERR value is not an integer or out of range"), False
-        if not self.store.exists(args[0]): return 0, False
-        if seconds <= 0: self.store.delete(args[0])
-        else: self.store.data[args[0]].expire_at = time.time() + seconds
-        self.persistence.append({"op":"EXPIRE","key":args[0].decode(),"expire_at":time.time() + seconds}); return 1, False
+            if not _INT.match(args[1]): return error("ERR value is not an integer or out of range"), False
+            seconds = int(args[1]); changed = self.store.expire(args[0], seconds)
+            if changed and seconds > 0: self.aof.append({"op":"EXPIRE","key":args[0],"expire_at":self.store.get(args[0]).expire_at})
+            elif changed: self.aof.append({"op":"DEL","key":args[0]})
+            return encode(1 if changed else 0), False
+        if name == "TTL": return encode(self.store.ttl(args[0])), False
+        if name == "KEYS": return encode(self.store.keys(args[0])), False
+        if name == "FLUSHALL": self.store.flush(); self.aof.flush(); return simple("OK"), False
+        key, value = args[0], args[1]; expire: float | None = None; condition: str | None = None; i = 2
+        while i < len(args):
+            option = args[i].upper()
+            if option in ("EX", "PX") and i + 1 < len(args) and _INT.match(args[i + 1]):
+                number = int(args[i + 1]);
+                if number <= 0: return error("ERR value is not an integer or out of range"), False
+                expire = self.store.clock() + (number if option == "EX" else number / 1000); i += 2; continue
+            if option in ("NX", "XX") and condition is None: condition = option; i += 1; continue
+            return error("ERR syntax error"), False
+        if not self.store.set(key, value, expire, condition): return encode(None), False
+        self.aof.append({"op":"SET","key":key,"value":value,"expire_at":expire}); return simple("OK"), False

@@ -10,5 +10,8 @@ requires-python = ">=3.10"
 [project.optional-dependencies]
 dev = ["redis>=5.0", "ruff>=0.8", "mypy>=1.13", "coverage>=7.6"]
 
-[tool.setuptools]
-packages = ["src"]
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+strict = true

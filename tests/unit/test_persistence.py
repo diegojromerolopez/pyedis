@@ -1,10 +1,12 @@
-import tempfile
 import unittest
-from src.persistence import Persistence
+from tempfile import TemporaryDirectory
+from src.persistence import AOF
 from src.store import Store
 
-class PersistenceTest(unittest.TestCase):
+
+class PersistenceTests(unittest.TestCase):
     def test_replay(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            p = Persistence(directory, False); p.open(); p.append({'op':'SET','key':'a','value':'b','expire_at':None})
-            s = Store(); p.replay(s, lambda _: None); self.assertEqual(s.get(b'a'), b'b')
+        with TemporaryDirectory() as directory:
+            aof = AOF(directory, False); aof.append({"op":"SET","key":"x","value":"y","expire_at":None})
+            store = Store(); aof.replay(store)
+            self.assertEqual(store.get("x").value, "y")
