@@ -1,91 +1,58 @@
-import asyncio
+"""Expiring in-memory key-value store."""
+from __future__ import annotations
+
 import fnmatch
 import time
-from typing import Callable
+from dataclasses import dataclass
+from collections.abc import Callable
+
+
+@dataclass
+class Entry:
+    value: bytes
+    expire_at: float | None = None
 
 
 class Store:
     def __init__(self, clock: Callable[[], float] = time.time) -> None:
-        self._clock = clock
-        self._data: dict[str, str] = {}
-        self._expires: dict[str, float] = {}
-        self.lock = asyncio.Lock()
+        self.clock = clock
+        self.data: dict[bytes, Entry] = {}
 
-    def _is_expired(self, key: str) -> bool:
-        if key in self._expires:
-            if self._clock() >= self._expires[key]:
-                self._purge(key)
-                return True
-        return False
+    def _expired(self, key: bytes) -> bool:
+        entry = self.data.get(key)
+        if entry is not None and entry.expire_at is not None and entry.expire_at <= self.clock():
+            del self.data[key]
+            return True
+        return entry is None
 
-    def _purge(self, key: str) -> None:
-        self._data.pop(key, None)
-        self._expires.pop(key, None)
+    def get(self, key: bytes) -> bytes | None:
+        return None if self._expired(key) else self.data[key].value
 
-    def get(self, key: str) -> str | None:
-        if self._is_expired(key):
-            return None
-        return self._data.get(key)
+    def set(self, key: bytes, value: bytes, expire_at: float | None = None) -> None:
+        self.data[key] = Entry(value, expire_at)
 
-    def set(self, key: str, value: str, expire_at: float | None = None) -> None:
-        self._data[key] = value
-        if expire_at is not None:
-            self._expires[key] = expire_at
-        else:
-            self._expires.pop(key, None)
+    def delete(self, key: bytes) -> bool:
+        if self._expired(key):
+            return False
+        del self.data[key]
+        return True
 
-    def delete(self, keys: list[str]) -> int:
-        count = 0
-        for k in keys:
-            self._is_expired(k)
-            if k in self._data:
-                self._purge(k)
-                count += 1
-        return count
+    def exists(self, key: bytes) -> bool:
+        return not self._expired(key)
 
-    def exists(self, keys: list[str]) -> int:
-        count = 0
-        for k in keys:
-            if not self._is_expired(k) and k in self._data:
-                count += 1
-        return count
+    def sweep(self) -> None:
+        for key in list(self.data):
+            self._expired(key)
 
-    def incr(self, key: str, delta: int = 1) -> int:
-        if self._is_expired(key):
-            val = 0
-        else:
-            raw = self._data.get(key, "0")
-            try:
-                val = int(raw)
-            except ValueError:
-                raise ValueError("value is not an integer or out of range")
-        val += delta
-        self._data[key] = str(val)
-        return val
+    def keys(self, pattern: bytes) -> list[bytes]:
+        self.sweep()
+        expression = pattern.decode("latin1")
+        return sorted((key for key in self.data if fnmatch.fnmatchcase(key.decode("latin1"), expression)))
 
-    def expire(self, key: str, seconds: float) -> int:
-        if self._is_expired(key) or key not in self._data:
-            return 0
-        if seconds <= 0:
-            self._purge(key)
-            return 1
-        self._expires[key] = self._clock() + seconds
-        return 1
-
-    def ttl(self, key: str) -> int:
-        if self._is_expired(key) or key not in self._data:
+    def ttl(self, key: bytes) -> int:
+        if self._expired(key):
             return -2
-        if key not in self._expires:
+        expiry = self.data[key].expire_at
+        if expiry is None:
             return -1
-        remaining = int(self._expires[key] - self._clock())
-        return remaining if remaining >= 0 else -2
-
-    def keys(self, pattern: str) -> list[str]:
-        all_keys = list(self._data.keys())
-        for k in all_keys:
-            self._is_expired(k)
-        return [k for k in self._data.keys() if fnmatch.fnmatch(k, pattern)]
-
-    def flushall(self) -> None:
-        self._data.clear()
-        self._expires.clear()
+        return max(0, int(expiry - self.clock()))

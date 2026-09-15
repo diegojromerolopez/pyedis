@@ -1,36 +1,14 @@
-version: '3.8'
-
 services:
-  pyedis-server:
-    build:
-      context: .
-      dockerfile: Dockerfile.e2e
-    container_name: pyedis-server
-    volumes:
-      - .:/app
+  api:
+    build: .
+    command: python3 -m src.main
     environment:
-      - PORT=6379
-      - PYEDIS_DATA_DIR=/tmp/pyedis_data
-      - PYEDIS_AOF_FSYNC=true
-    command: ["/bin/sh", "-c", "mkdir -p /tmp/pyedis_data && python3 -m src.main"]
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli -p 6379 ping | grep -q PONG || exit 1"]
-      interval: 2s
-      timeout: 2s
-      retries: 10
-      start_period: 1s
-
-  test-runner-e2e:
-    build:
-      context: .
-      dockerfile: Dockerfile.e2e
-    container_name: pyedis-test-runner-e2e
-    volumes:
-      - .:/app
-    depends_on:
-      pyedis-server:
-        condition: service_healthy
+      PORT: 6379
+      PYEDIS_DATA_DIR: /data
+      PYEDIS_AOF_FSYNC: "true"
+    ports: ["6379:6379"]
+  e2e:
+    build: tests/e2e
+    depends_on: [api]
     environment:
-      - REDIS_HOST=pyedis-server
-      - REDIS_PORT=6379
-    command: ["/bin/sh", "-c", "chmod +x tests/e2e/run_tests.sh && tests/e2e/run_tests.sh"]
+      REDIS_URL: redis://api:6379

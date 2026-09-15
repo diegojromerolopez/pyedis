@@ -1,3 +1,3 @@
-# pyedis Documentation
+# pyedis
 
-Welcome to pyedis documentation.
+See [API](api.md) for protocol and command details.

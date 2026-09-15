@@ -1,1 +1,1 @@
-# pyedis package
+"""pyedis package."""

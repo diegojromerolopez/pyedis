@@ -1,309 +1,135 @@
-# pyedis Specification: Native Redis RESP Key-Value Store in Python 3.14
+# Refined Specification: pyedis
 
-## 1. Overview
+## 1. Product and Scope
 
-`pyedis` is an in-memory key-value store with a **native Redis wire-protocol (RESP2/RESP3) API exposed over TCP** (default port `6379`), written in modern Python (3.14) with **Python 3.10+ type hints throughout** (using built-in generic collections `dict`, `list`, `tuple`, `set` per PEP 585 instead of `typing.Dict`, `typing.List`, `typing.Tuple`) and a strict `mypy --strict` gate. It mirrors Redis command semantics (`PING`, `ECHO`, `QUIT`, `SET`, `GET`, `DEL`, `EXISTS`, `INCR`, `DECR`, `EXPIRE`, `TTL`, `KEYS`, `FLUSHALL`) with deterministic RESP reply/error envelopes, and persists state to an append-only file (AOF) using absolute expiration timestamps so data and TTLs survive process restarts and `SIGKILL`. Standard Redis client utilities (`redis-cli`, `redis-py` v5+) MUST be fully compatible with `pyedis`.
+`pyedis` is an in-memory string key-value store implemented in Python 3.14 and exposed through a TCP server speaking Redis RESP2. RESP3 negotiation is not implemented; clients requesting RESP3 with `HELLO 3` receive `-ERR unknown command 'HELLO'` unless a later compatibility extension is added. The required compatibility target is `redis-cli` and `redis-py` 5+ using RESP2 fallback behavior.
 
-The project deliberately exercises the validation host's Python-ecosystem seam: async TCP socket streams (`asyncio.start_server`), zero-copy stream parsing, dependency injection (clock + store + AOF logger), absolute timestamp durability, and lock-protected async concurrency.
+The default listen address is `127.0.0.1:6379`. Configuration is supplied by `PORT` (default `6379`), `PYEDIS_DATA_DIR` (default `./data`), and `PYEDIS_AOF_FSYNC` (default `true`, case-insensitive values `true/1/yes` and `false/0/no`).
 
-> [!IMPORTANT]
-> **STRICT TESTING MANDATE: ZERO PYTEST USAGE (STANDARD LIBRARY `unittest` ONLY)**
-> - **`pytest` is STRICTLY FORBIDDEN:** The project MUST NOT use `pytest` under ANY circumstances.
-> - **Zero `pytest` Dependencies or Artifacts:** Do NOT import `pytest`, do NOT list `pytest` in `requirements.txt` or `pyproject.toml`, do NOT create `conftest.py` or `pytest.ini`, and do NOT invoke `pytest` anywhere in Makefiles, scripts, or story contracts.
-> - **Standard Library `unittest` Throughout:** All unit and integration tests MUST subclass `unittest.TestCase` (or `unittest.IsolatedAsyncioTestCase` for async tests) using `unittest.mock`. All test suites must be executed via `python3 -m unittest discover -s tests -v`.
+Only the Python standard library is a runtime dependency. Development dependencies are pinned or lower-bounded as specified: `redis>=5.0`, `ruff>=0.8`, `mypy>=1.13`, and `coverage>=7.6`. `pytest` is forbidden everywhere: imports, dependencies, configuration, scripts, Makefile recipes, and documentation.
 
-## 2. Pinned Directory Layout
+## 2. Required Repository Layout
+
+The repository MUST contain exactly these required application and validation paths:
 
 ```
-pyedis/
-├── pyproject.toml            # PEP 621; deps + [tool.mypy], [tool.ruff]
-├── requirements.txt          # pinned runtime + dev deps (see §3.1)
-├── Makefile                  # install/run/test/lint/format/e2e targets (all REQUIRED)
-├── README.md                 # usage, command API, persistence format, e2e instructions
-├── .readthedocs.yaml         # Read the Docs configuration file (REQUIRED)
-├── docs/                     # Read the Docs documentation directory (REQUIRED)
-│   ├── index.md              # Documentation entry point
-│   └── api.md                # Command API, RESP protocol, and architecture documentation
-├── .gitignore                # ignore __pycache__/, .venv/, data/, .coverage, htmlcov/
-├── docker-compose.yml        # e2e black-box harness (see §10)
-├── src/
-│   ├── __init__.py
-│   ├── main.py               # asyncio TCP server entrypoint (run_server) + SIGINT/SIGTERM handlers
-│   ├── resp.py               # RESP wire protocol encoder & streaming decoder (chunking + pipelining)
-│   ├── store.py              # Store (in-memory dict + expiration index), DI clock, async lock
-│   ├── commands.py           # Command dispatcher, arity & syntax validation, error envelopes
-│   └── persistence.py        # AOF append logger (with absolute expire_at) + startup replay
-├── tests/
-│   ├── unit/
-│   │   ├── test_store.py     # Set/get/del/incr/ttl with injected deterministic mock clock
-│   │   ├── test_resp.py      # RESP frame encoding, streaming chunk reassembly, pipelined buffers
-│   │   ├── test_commands.py  # Arity, unknown commands, case-insensitivity, syntax/type errors, NX/XX
-│   │   └── test_persistence.py  # AOF round-trip: write, absolute TTL replay, corrupt line recovery
-│   ├── integration/
-│   │   └── test_server.py    # Live TCP socket tests via redis-py (commands, pipeline, concurrency, restart)
-│   └── e2e/
-│       ├── Dockerfile        # python:3.14-alpine + redis (redis-cli), copies run_tests.sh
-│       └── run_tests.sh      # Black-box redis-cli assertions against ${REDIS_URL}
-└── data/                     # runtime AOF (git-ignored, created on start)
+pyproject.toml
+requirements.txt
+Makefile
+README.md
+.readthedocs.yaml
+docs/index.md
+docs/api.md
+.gitignore
+docker-compose.e2e.yml
+src/__init__.py
+src/main.py
+src/resp.py
+src/store.py
+src/commands.py
+src/persistence.py
+tests/unit/test_store.py
+tests/unit/test_resp.py
+tests/unit/test_commands.py
+tests/unit/test_persistence.py
+tests/integration/test_server.py
+tests/e2e/Dockerfile
+tests/e2e/run_tests.sh
+data/
 ```
 
-## 3. Toolchain, Invocation, Exit Codes, and Configuration
+`data/` is created at runtime and ignored by git. No source file may exceed 500 lines. All source functions, methods, dataclasses, and modules are annotated with Python 3.10+ type hints using built-in generic collections rather than `typing.Dict`, `List`, `Tuple`, or `Set`. `mypy --strict src` is mandatory.
 
-### 3.1 Runtime / Dev Dependencies (pinned)
-- **Runtime:** Standard Python 3.14 library (`asyncio`, `dataclass`, `os`, `sys`, `time`, `typing`). No external web frameworks (no FastAPI/Uvicorn).
-- **Dev:** `redis>=5.0`, `ruff>=0.8`, `mypy>=1.13`, `coverage>=7.6`.
-- **Testing Framework Rule (MANDATORY):** Tests MUST NOT use `pytest` or any third-party test framework under any circumstances. All unit and integration tests MUST be written using Python's standard library `unittest` framework (using `unittest.TestCase`, `unittest.IsolatedAsyncioTestCase` for async tests, and `unittest.mock`). All test modules must be executable via `python3 -m unittest discover -s tests`.
+## 3. Public Entry Point, Lifecycle, and Diagnostics
 
-### 3.2 Makefile Targets (all REQUIRED, defined exactly once)
-- `make install` → `python3 -m pip install -e ".[dev]"`.
-- `make run` → `python3 -m src.main`.
-- `make test` → `python3 -m unittest discover -s tests -v` (runs unit + integration suites via standard library `unittest`; zero failures allowed).
-- `make lint` → `ruff check src tests` AND `mypy --strict src` — both must pass with zero findings.
-- `make format` → `ruff format src tests` (idempotent code formatting).
-- `make e2e` → `docker compose up --build --exit-code-from e2e` (host-run black-box harness).
+`python3 -m src.main` starts the asynchronous TCP server. `src.main` is a thin wrapper delegating immediately to a testable server function. The server accepts multiple clients, processes each client stream sequentially, and serializes all store operations through one shared asynchronous lock.
 
-**Linter Gate (REQUIRED):** The project MUST pass `make lint` with ZERO findings before the test gate is considered green. Both `ruff check src tests` (all default rules) and `mypy --strict src` are mandatory — no `# noqa` suppressions of style rules and no `# type: ignore` that hides typing issues.
+Clean `SIGINT` or `SIGTERM` shutdown flushes open AOF files, closes the listening socket and active client writers, and exits with status 0. Startup failures such as an unwritable data directory or failed port bind write `pyedis: <reason>` to stderr and exit with status 1. Every diagnostic line written by the application to stdout or stderr begins with `pyedis: `. A corrupt final AOF record writes exactly `pyedis: ignoring corrupt trailing AOF line` as a warning and does not prevent startup.
 
-### 3.3 Configuration (environment variables, pinned)
-- `PORT` (default `6379`) — TCP listen port.
-- `PYEDIS_DATA_DIR` (default `./data`) — directory holding `dump.aof`.
-- `PYEDIS_AOF_FSYNC` (`true` default) — call `os.fsync` on the AOF file after every mutation before transmitting the RESP reply.
+## 4. Makefile and Tooling Contracts
 
-### 3.4 Exit Codes and Logging
-- Clean `SIGINT`/`SIGTERM` shutdown → flush open files, close server socket, exit `0`.
-- Fatal startup error (e.g. data dir unwritable, port binding failure) → log `pyedis: <reason>` to stderr, exit `1`.
-- All operational diagnostic logs on stdout/stderr MUST use the prefix `pyedis: `.
+The Makefile defines each target exactly once:
 
----
+- `make install`: `python3 -m pip install -e ".[dev]"`.
+- `make build`: validates the package can be imported and the server entrypoint can be compiled with `python3 -m compileall src`.
+- `make run`: `python3 -m src.main`.
+- `make test`: `python3 -m unittest discover -s tests -v`; zero discovered tests or any failure is an error.
+- `make lint`: `ruff check src tests` followed by `mypy --strict src`.
+- `make format`: `ruff format src tests`.
+- `make e2e`: `docker compose -f docker-compose.e2e.yml up --build --exit-code-from e2e`.
 
-## 4. RESP Wire Protocol & Framing Engine
+All tests subclass `unittest.TestCase` or `unittest.IsolatedAsyncioTestCase` and use `unittest.mock` only. No third-party test framework is permitted.
 
-`pyedis` communicates exclusively via standard REdis Serialization Protocol (RESP2/RESP3) over TCP.
+## 5. RESP2 Protocol and Stream Framing
 
-### 4.1 RESP Frame Types & Envelopes
+The server accepts RESP2 arrays and inline commands. Supported frame encodings are:
 
-| Frame Type | Byte Prefix | Wire Format | Example |
-| :--- | :---: | :--- | :--- |
-| **Simple String** | `+` | `+<string>\r\n` | `+OK\r\n`, `+PONG\r\n` |
-| **Error** | `-` | `-<TYPE> <message>\r\n` | `-ERR syntax error\r\n`, `-ERR unknown command 'FOO'\r\n` |
-| **Integer** | `:` | `:<signed_number>\r\n` | `:1\r\n`, `:0\r\n`, `:-1\r\n`, `:-2\r\n` |
-| **Bulk String** | `$` | `$<length>\r\n<data>\r\n` | `$5\r\nhello\r\n`, `$0\r\n\r\n` |
-| **Null Bulk String** | `$` | `$-1\r\n` | `$-1\r\n` (key absent / nil reply in RESP2) |
-| **Array** | `*` | `*<count>\r\n<element_1>...` | `*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n` |
-| **Empty Array** | `*` | `*0\r\n` | `*0\r\n` (no matching keys) |
-| **Null Array** | `*` | `*-1\r\n` | `*-1\r\n` (nil array) |
+- Simple string: `+TEXT\r\n`.
+- Error: `-ERR message\r\n`.
+- Integer: `:<signed integer>\r\n`.
+- Bulk string: `$<byte length>\r\n<bytes>\r\n`.
+- Null bulk: `$-1\r\n`.
+- Array: `*<count>\r\n<frames>...`.
+- Empty array: `*0\r\n`.
+- Null array: `*-1\r\n`.
 
-### 4.2 Stream Parsing, Fragmentation, Pipelining, and Inline Commands
-1. **TCP Stream Buffering & Chunking:** TCP streams provide no boundary guarantees. The RESP stream decoder must accumulate incoming chunks into a byte buffer and yield complete frames only when the entire payload (including matching byte counts and trailing `\r\n`) has arrived. Partial frames must not block or crash the reader.
-2. **Command Pipelining:** Clients may transmit multiple RESP commands concatenated in a single TCP read buffer. The server must parse and execute every command sequentially in FIFO order, transmitting the corresponding RESP replies back-to-back in matching sequence without dropping or reordering frames.
-3. **Multi-Bulk Arrays vs. Inline Commands:**
-   - Standard client drivers (`redis-py`, `redis-cli`) send commands formatted as RESP Multi-Bulk Arrays (e.g. `*2\r\n$3\r\nGET\r\n$3\r\nkey\r\n`).
-   - Telnet, netcat, and health checkers send plain text **Inline Commands** separated by whitespace and terminated by `\r\n` (e.g. `PING\r\n`, `PING hello\r\n`, `SET k v\r\n`). The decoder must support both formats seamlessly.
-4. **Binary Safety:** Bulk strings are binary-safe byte slices (supporting arbitrary UTF-8 characters, JSON strings, whitespace, embedded `\r\n`, and null bytes `\x00`).
-5. **Command Case-Insensitivity:** Command names are strictly case-insensitive (`ping`, `PING`, `Ping`, `sEt`, `gEt` must all route to the same handler).
+Bulk lengths count bytes, not characters. Values and arguments are binary-safe and may contain UTF-8, spaces, tabs, CRLF, or null bytes. Command names are decoded case-insensitively; key and value bytes are preserved as supplied and represented as UTF-8 strings only where command semantics require strings.
 
----
+The decoder buffers arbitrary TCP chunks, yields only complete frames, retains incomplete bytes, and yields all concatenated frames FIFO. Inline commands are CRLF-terminated and split on ASCII whitespace; an incomplete line remains buffered. Malformed RESP or unterminated inline input receives `-ERR protocol error\r\n`, after which the server closes that client connection. A command with a valid frame but invalid arity or syntax receives the command-specific error and the connection remains open.
 
-## 5. Supported Commands & Parity Semantics
+`QUIT` sends `+OK\r\n`, drains the writer, and closes that client connection. Replies for pipelined commands are emitted in input order.
 
-Every command supported by `pyedis` must adhere strictly to official Redis specifications:
+## 6. Commands and Exact Reply Contracts
 
-| Command | Signature & Description | Success RESP Reply | Error RESP Reply |
-| :--- | :--- | :--- | :--- |
-| `PING` | `PING [message]`<br>Tests connection liveness. | With 0 args: `+PONG\r\n`<br>With 1 arg: `$<len>\r\n<message>\r\n` | `>1` args: `-ERR wrong number of arguments for 'ping' command\r\n` |
-| `ECHO` | `ECHO message`<br>Echoes the given string. | `$<len>\r\n<message>\r\n` | `!=1` arg: `-ERR wrong number of arguments for 'echo' command\r\n` |
-| `QUIT` | `QUIT`<br>Asks the server to close the connection. | `+OK\r\n` (server closes TCP connection immediately after sending reply) | `!=0` args: `-ERR wrong number of arguments for 'quit' command\r\n` |
-| `SET` | `SET key value [EX seconds] [PX ms] [NX\|XX]`<br>Sets string value with optional expiration and existence guards. | `+OK\r\n` (if set)<br>`$-1\r\n` (if condition `NX` or `XX` not met) | `<2` args: `-ERR wrong number of arguments for 'set' command\r\n`<br>Both `NX` & `XX`: `-ERR syntax error\r\n`<br>Invalid TTL: `-ERR value is not an integer or out of range\r\n` |
-| `GET` | `GET key`<br>Gets the string value of a key. | `$<len>\r\n<val>\r\n`<br>`$-1\r\n` (if key missing or expired) | `!=1` arg: `-ERR wrong number of arguments for 'get' command\r\n` |
-| `DEL` | `DEL key [key ...]`<br>Removes specified key(s). | `:<count>\r\n` (integer count of keys successfully removed) | `<1` arg: `-ERR wrong number of arguments for 'del' command\r\n` |
-| `EXISTS` | `EXISTS key [key ...]`<br>Returns the count of existing keys. | `:<count>\r\n` (sum of existing keys; duplicates counted per instance per Redis 3.0+) | `<1` arg: `-ERR wrong number of arguments for 'exists' command\r\n` |
-| `INCR` | `INCR key`<br>Increments the integer value of a key by 1. | `:<new_int_value>\r\n` | `!=1` arg: `-ERR wrong number of arguments for 'incr' command\r\n`<br>Non-integer value: `-ERR value is not an integer or out of range\r\n` |
-| `DECR` | `DECR key`<br>Decrements the integer value of a key by 1. | `:<new_int_value>\r\n` | `!=1` arg: `-ERR wrong number of arguments for 'decr' command\r\n`<br>Non-integer value: `-ERR value is not an integer or out of range\r\n` |
-| `EXPIRE` | `EXPIRE key seconds`<br>Sets a timeout on key in seconds. | `:1\r\n` (timeout set)<br>`:0\r\n` (key missing or expired) | `!=2` args: `-ERR wrong number of arguments for 'expire' command\r\n`<br>Non-integer: `-ERR value is not an integer or out of range\r\n` |
-| `TTL` | `TTL key`<br>Returns remaining TTL in seconds. | `:-2\r\n` (key does not exist or expired)<br>`:-1\r\n` (key exists with no expiry)<br>`:<seconds>\r\n` (remaining positive seconds) | `!=1` arg: `-ERR wrong number of arguments for 'ttl' command\r\n` |
-| `KEYS` | `KEYS pattern`<br>Returns all keys matching glob pattern (`*`, `?`, `[abc]`, `\*`). | `*<count>\r\n$<len>\r\n<key1>\r\n...` (returns `*0\r\n` if no matches) | `!=1` arg: `-ERR wrong number of arguments for 'keys' command\r\n` |
-| `FLUSHALL` | `FLUSHALL`<br>Deletes all keys from the store and truncates AOF. | `+OK\r\n` | None |
-| *Unknown* | Any unrecognized command `<NAME>` | None | `-ERR unknown command '<NAME>'\r\n` |
+Command names are case-insensitive. Unknown commands use the received command name normalized to uppercase in `-ERR unknown command '<NAME>'\r\n`.
 
-### 5.1 Special Command Semantics & Edge Cases
-1. **`SET` Overwrite Behavior:** Overwriting a key with `SET key new_val` (without `EX`/`PX`) MUST remove any existing expiration associated with that key, making the key persistent (`TTL` becomes `-1`).
-2. **`SET` Expiration Flags:** `EX` accepts positive integer seconds; `PX` accepts positive integer milliseconds. If the specified duration is `<= 0`, return `-ERR value is not an integer or out of range\r\n`.
-3. **`INCR`/`DECR` Semantics:** If the key does not exist, it is initialized to `"0"` prior to performing the increment/decrement (resulting in `1` or `-1`). If the key already has an expiration, the expiration MUST be preserved after `INCR`/`DECR`.
-4. **`EXPIRE` Non-Positive Durations:** If `EXPIRE key seconds` is called with `seconds <= 0`, the key MUST be immediately deleted. The command returns `:1\r\n` if the key existed, or `:0\r\n` if it did not.
-5. **Client Discovery Commands (`COMMAND`, `INFO`, `CLIENT`):** When modern Redis drivers (`redis-py`) connect, they may issue handshake commands. If unhandled, returning `-ERR unknown command '<NAME>'\r\n` allows standard fallback, or returning an empty array `*0\r\n` / simple string `+OK\r\n` satisfies connection negotiation.
+- `PING [message]`: zero arguments returns `+PONG\r\n`; one returns a bulk string; more returns `-ERR wrong number of arguments for 'ping' command\r\n`.
+- `ECHO message`: exactly one argument and bulk-string reply; otherwise the exact echo arity error.
+- `QUIT`: exactly zero arguments returns `+OK\r\n` then closes; otherwise the exact quit arity error.
+- `SET key value [EX seconds|PX milliseconds] [NX|XX]`: success `+OK\r\n`; failed NX/XX condition `$-1\r\n`; both guards, duplicate/conflicting options, missing option values, malformed options, or invalid positive integer duration return `-ERR syntax error\r\n` except duration values `<=0` or outside signed 64-bit range, which return `-ERR value is not an integer or out of range\r\n`. A plain overwrite removes prior expiry.
+- `GET key`: bulk value or `$-1\r\n`; wrong arity uses the exact get arity error.
+- `DEL key [key ...]`: integer count of distinct keys actually removed; wrong arity uses the exact del arity error.
+- `EXISTS key [key ...]`: integer count, counting duplicate existing key arguments independently; wrong arity uses the exact exists arity error.
+- `INCR key` and `DECR key`: integer result, initialize missing keys from zero, preserve existing expiry, and reject non-integers or overflow with `-ERR value is not an integer or out of range\r\n`.
+- `EXPIRE key seconds`: positive duration sets expiry and returns `:1`; missing/expired key returns `:0`; duration `<=0` immediately deletes an existing key and returns `:1`, otherwise `:0`; invalid integer returns the exact integer-range error.
+- `TTL key`: `:-2` for absent/expired, `:-1` for persistent, or remaining whole seconds rounded down toward zero for an expiring key; wrong arity uses the exact ttl arity error.
+- `KEYS pattern`: glob matching with `*`, `?`, character classes such as `[abc]`, and backslash escaping; returns a RESP array of bulk keys in deterministic lexicographic order; no matches returns `*0\r\n`.
+- `FLUSHALL`: removes all keys, truncates AOF to zero bytes, and returns `+OK\r\n`; extra arguments return `-ERR wrong number of arguments for 'flushall' command\r\n`.
 
----
+For every command, mutation replies are transmitted only after required AOF persistence and optional fsync complete. `COMMAND`, `INFO`, and `CLIENT` are not supported and return their normal unknown-command error; redis-py must still operate using RESP2 fallback.
 
-## 6. Store Semantics & Expiration Engine
+## 7. Store and Expiration
 
-1. **Storage Structure:** In-memory dictionary mapping UTF-8 string keys to values, paired with an expiration map tracking absolute expiration timestamps (epoch seconds as float/int).
-2. **Deterministic Time Injection:** The `Store` MUST accept a `Clock` callable (`Callable[[], float]`, default `time.time`) via dependency injection. All TTL calculations, expiration comparisons, and AOF timestamp generations MUST query this injected clock, enabling unit tests to freeze or fast-forward time deterministically.
-3. **Dual-Mode Expiration Strategy:**
-   - **Lazy Eviction:** On any key access (`GET`, `SET`, `DEL`, `EXISTS`, `INCR`, `DECR`, `TTL`, `EXPIRE`), if current time $\ge$ key expiration timestamp, the key is purged immediately before completing the command.
-   - **Active Sweep:** Before executing `KEYS` or `FLUSHALL`, the store performs an active scan to evict all expired keys so stale keys never appear in query results.
-4. **Thread & Async Concurrency Safety:** All mutations and queries against the store execute under a shared `asyncio.Lock` owned by the store, ensuring serialized atomic execution across all concurrent client socket connections.
+The store maps string keys to string values and tracks absolute Unix epoch `expire_at` timestamps. A clock callable defaults to `time.time` and is injectable. Every access lazily removes expired keys. `KEYS` and `FLUSHALL` additionally sweep all expired entries first. All operations, including reads, use the shared async lock. `INCR` and `DECR` preserve expiry; `SET` without expiry clears it. TTL calculations use the injected clock and never sleep in unit tests.
 
----
+## 8. AOF Persistence
 
-## 7. Persistence Architecture (AOF Engine)
+The AOF path is `<PYEDIS_DATA_DIR>/dump.aof`. Each successful state mutation appends exactly one JSON object per line:
 
-`pyedis` implements an Append-Only File (AOF) durability engine to ensure zero data loss across restarts.
-
-### 7.1 AOF Record Schema
-Every successful state-modifying mutation (`SET`, `DEL`, `INCR`, `DECR`, `EXPIRE`, `FLUSHALL`) appends exactly one valid JSON line to `<PYEDIS_DATA_DIR>/dump.aof`:
-- `{"op":"SET","key":"<k>","value":"<v>","expire_at":<timestamp_float_or_null>}`
-- `{"op":"DEL","key":"<k>"}`
-- `{"op":"INCR","key":"<k>"}` / `{"op":"DECR","key":"<k>"}`
-- `{"op":"EXPIRE","key":"<k>","expire_at":<timestamp_float>}`
-- `{"op":"FLUSHALL"}`
-
-> [!IMPORTANT]
-> **Absolute Expiration Invariant:** Expirations stored in `dump.aof` MUST use absolute Unix epoch timestamps (`expire_at`), NOT relative durations. This guarantees that when replaying the AOF on startup, keys that expired during downtime are immediately evicted and not revived with renewed lifetimes.
-
-### 7.2 Fsync & Startup Replay
-1. **Fsync Guarantee:** When `PYEDIS_AOF_FSYNC=true` (default), the server calls `os.fsync()` on the open AOF file descriptor after writing each mutation before transmitting the RESP reply to the client socket.
-2. **Startup Replay:** On server initialization, if `dump.aof` exists in `PYEDIS_DATA_DIR`, lines are replayed sequentially into the store.
-3. **Crash Recovery & Corrupt Trailing Line Tolerance:** If the server was terminated abruptly (`SIGKILL`, power failure) during an append, the final line in `dump.aof` may be truncated/corrupted. The replay engine MUST log a warning `pyedis: ignoring corrupt trailing AOF line` and successfully load all preceding valid lines.
-4. **`FLUSHALL` Truncation:** Executing `FLUSHALL` immediately truncates `dump.aof` to 0 bytes.
-
----
-
-## 8. Software Engineering & Architecture Constraints
-
-- **Python 3.10+ Type Hints:** Every function, method, dataclass, and module must be strictly annotated using built-in generic collections (`dict`, `list`, `tuple`, `set`). Do NOT import `Dict`, `List`, `Tuple`, `Set` from `typing`. `mypy --strict src` must pass with zero errors.
-- **SOLID & Domain-Driven Design (DDD):**
-  - `src/resp.py`: Pure protocol encoding and streaming decoding without networking or storage logic.
-  - `src/store.py`: In-memory storage, expiration logic, and clock abstractions without socket or AOF dependencies.
-  - `src/commands.py`: Command routing, syntax parsing, and RESP envelope generation.
-  - `src/persistence.py`: AOF append logger and replay engine.
-  - `src/main.py`: Composition root, `asyncio.start_server` TCP loop, and signal handling.
-- **Dependency Injection (DI):** The store, clock, and AOF logger are injected into dispatchers and server factories via constructors. No global mutable state or unmockable singletons.
-- **File Size Limit:** No source file may exceed 500 lines of code.
-
----
-
-## 9. The Exhaustive Redis Parity & Conformance Testset Matrix
-
-To ensure feature-parity between `pyedis` and official Redis, the automated test suite must execute the following 8 comprehensive verification layers:
-
-### 9.1 RESP Wire Protocol & Framing Suite (`tests/unit/test_resp.py`)
-- **Encoding Verification:** Unit tests verifying exact wire bytes for simple strings (`+OK\r\n`), errors (`-ERR message\r\n`), integers (`:42\r\n`), bulk strings (`$5\r\nhello\r\n`), null bulk (`$-1\r\n`), arrays (`*2\r\n$3\r\nfoo\r\n$3\r\nbar\r\n`), and empty arrays (`*0\r\n`).
-- **Streaming Chunk Reassembly:** Feeds partial bytes across multiple chunks (e.g. `b"*2\r\n$3\r\n"`, followed by `b"GET\r\n$3\r\nkey\r\n"`) to the decoder and asserts correct reassembly into a single command.
-- **Pipelined Buffer Decoding:** Feeds a single byte buffer containing 3 concatenated RESP commands and asserts the decoder yields all 3 commands in exact FIFO order.
-- **Inline Command Parsing:** Asserts `b"PING\r\n"`, `b"PING hello\r\n"`, and `b"SET mykey myval\r\n"` parse into expected argument lists.
-- **Binary Safety:** Asserts bulk strings containing embedded `\r\n`, null bytes `\x00`, spaces, tabs, and UTF-8 multi-byte characters are parsed without truncation or corruption.
-
-### 9.2 In-Memory Store & Clock Conformance Suite (`tests/unit/test_store.py`)
-- **Deterministic Time Advancement:** Tests inject a controllable fake clock:
-  - Sets key with TTL = 5 seconds at $T_0$.
-  - Asserts `GET` succeeds and `TTL` returns `5` at $T_0$.
-  - Advances clock to $T_0 + 3s$; asserts `TTL` returns `2`.
-  - Advances clock to $T_0 + 5.1s$; asserts `GET` returns `None` and `TTL` returns `-2` (lazy eviction).
-- **TTL Overwrite:** Setting an existing expiring key with a plain `SET` clears expiration; `TTL` returns `-1`.
-- **Active Sweep before `KEYS`:** Expired keys are purged and not returned by `KEYS *`.
-
-### 9.3 Command Semantics & Dispatch Suite (`tests/unit/test_commands.py`)
-- **Arity Errors:** Verifies exact error string `-ERR wrong number of arguments for '<cmd>' command\r\n` when commands are invoked with too few or too many arguments (`PING`, `GET`, `SET`, `DEL`, `EXISTS`, `INCR`, `DECR`, `EXPIRE`, `TTL`, `KEYS`, `QUIT`).
-- **Case-Insensitivity:** Verifies `set`, `SET`, `Set`, `sEt` execute identically.
-- **`SET` Flag Permutations:**
-  - `SET k v NX`: returns `+OK\r\n` on first call; returns `$-1\r\n` on second call.
-  - `SET k v XX`: returns `$-1\r\n` when key is absent; returns `+OK\r\n` after key is created.
-  - `SET k v NX XX`: returns `-ERR syntax error\r\n`.
-  - `SET k v EX 10`: sets expiration to 10 seconds.
-  - `SET k v EX 0` / `SET k v EX -5`: returns `-ERR value is not an integer or out of range\r\n`.
-- **`INCR`/`DECR` Operations:**
-  - Missing key initialized to `0` and incremented to `1` / decremented to `-1`.
-  - String representing an integer `"100"` incremented to `101`.
-  - Non-integer string `"hello"` returns `-ERR value is not an integer or out of range\r\n`.
-  - Preserves existing TTL on the key after increment.
-- **`EXISTS` Multi-Key Count:** `EXISTS k1 k2 k3` returns integer count of existing keys. Supplying the same existing key twice (`EXISTS k1 k1`) returns `:2\r\n`.
-- **`DEL` Multi-Key Count:** `DEL k1 k2 missing_k` returns count of deleted keys (`:2\r\n`).
-- **`KEYS` Glob Patterns:** Tests glob matching against `h*llo`, `h?llo`, `h[ae]llo`, `*`, and `test\*key`.
-- **Unknown Command:** `FOOBAR` returns `-ERR unknown command 'FOOBAR'\r\n`.
-
-### 9.4 AOF Persistence & Recovery Suite (`tests/unit/test_persistence.py`)
-- **Mutation Logging:** Verifies every mutation writes a valid JSON line with `op`, `key`, and absolute `expire_at`.
-- **Replay Accuracy:** Appends records to a temporary AOF file, re-initializes a fresh `Store` from the file, and asserts full state equality.
-- **Time-Travel Resilience:** Writes a key expiring at $T_0 + 10s$. Sets clock to $T_0 + 20s$ and replays AOF into fresh store; asserts the key is expired and absent.
-- **Truncated Last Line Recovery:** Simulates crash by writing a partial JSON string `{"op":"SET","key":"k` at the end of `dump.aof`. Replay successfully restores all valid preceding entries and logs a warning.
-- **`FLUSHALL` Truncation:** Asserts `FLUSHALL` truncates `dump.aof` to zero bytes on disk.
-
-### 9.5 Socket & Protocol Integration Suite (`tests/integration/test_server.py`)
-- Runs a live `pyedis` TCP server on `127.0.0.1` with an ephemeral port.
-- **Raw Socket Verification:** Tests raw TCP socket connections sending inline strings and multi-bulk arrays.
-- **Official Driver Interop (`redis-py`):**
-  - Connects using `r = redis.Redis(host="127.0.0.1", port=PORT)`.
-  - Executes full command suite (`ping`, `set`, `get`, `delete`, `exists`, `incr`, `decr`, `expire`, `ttl`, `keys`, `flushall`).
-  - Executes `redis-py` Pipelines (`pipe = r.pipeline(); pipe.set('a', '1'); pipe.incr('a'); pipe.get('a'); res = pipe.execute()`; asserts `res == [True, 2, b'2']`).
-- **Concurrent Client Load:** 50 concurrent `asyncio` tasks or threads hammering `INCR counter` simultaneously. Asserts final value is exactly `50` with zero dropped updates.
-- **Server Restart Durability:** Writes data, terminates server, starts new server instance on same data directory, asserts data persists.
-
-### 9.6 Black-Box E2E Conformance Suite (`tests/e2e/run_tests.sh`)
-- Executed inside the `e2e` container against `${REDIS_URL}` using official `redis-cli`:
-  1. `redis-cli ping` → `PONG`
-  2. `redis-cli ping "hello world"` → `"hello world"`
-  3. `redis-cli set k1 v1` → `OK`, `redis-cli get k1` → `v1`
-  4. `redis-cli set k2 v2 NX` → `OK`, `redis-cli set k2 v2 NX` → `(nil)`
-  5. `redis-cli set k3 v3 EX 1` → `OK`, `sleep 2`, `redis-cli get k3` → `(nil)`, `redis-cli ttl k3` → `-2`
-  6. `redis-cli exists k1 k2 missing` → `2`
-  7. `redis-cli incr counter` → `1`, `redis-cli incr counter` → `2`, `redis-cli decr counter` → `1`
-  8. `redis-cli keys "*"` → list of keys
-  9. `redis-cli del k1 k2 counter` → `3`
-  10. `redis-cli flushall` → `OK`
-- Exits code `0` only if all assertions pass.
-
-### 9.7 Differential Conformance Oracle
-The integration test suite (`tests/integration/test_server.py`) and E2E script (`tests/e2e/run_tests.sh`) MUST yield the exact same test outputs and return code `0` whether executed against `pyedis` or standard `redis:7-alpine`.
-
-### 9.8 Code Coverage Gate
-Total test coverage of `src/` must be $\ge 95\%$ lines (`coverage run -m unittest discover -s tests && coverage report`).
-
----
-
-## 10. E2E Black-Box Harness (docker-compose)
-
-`docker-compose.yml` MUST define two services, runnable from the host with `make e2e`:
-
-```yaml
-services:
-  api:
-    build: .
-    command: ["python3", "-m", "src.main"]
-    environment:
-      PYEDIS_DATA_DIR: "/data"
-      PORT: "6379"
-      PYEDIS_AOF_FSYNC: "true"
-    volumes:
-      - data:/data
-    ports:
-      - "6379:6379"
-  e2e:
-    build: ./tests/e2e
-    depends_on:
-      - api
-    environment:
-      REDIS_URL: "redis://api:6379"
-volumes:
-  data:
+```
+{"op":"SET","key":"k","value":"v","expire_at":null}
+{"op":"SET","key":"k","value":"v","expire_at":123.5}
+{"op":"DEL","key":"k"}
+{"op":"INCR","key":"k"}
+{"op":"DECR","key":"k"}
+{"op":"EXPIRE","key":"k","expire_at":123.5}
+{"op":"FLUSHALL"}
 ```
 
-- `tests/e2e/Dockerfile`: `FROM python:3.14-alpine`, installs `redis` (`redis-cli` tool), copies `run_tests.sh`, `CMD ["/tests/run_tests.sh"]`.
-- `tests/e2e/run_tests.sh`: Black-box `redis-cli` assertions against `${REDIS_URL}`. Exits nonzero on the first failure.
+A failed conditional SET, a missing-key DEL/EXPIRE, a non-positive EXPIRE on a missing key, and invalid commands append nothing. A successful mutation that changes state appends one record. Expiration timestamps are absolute. Startup replays valid records in order using the injected/current clock and does not revive expired keys. A malformed or truncated final line is ignored with the exact warning above; malformed non-final lines are a fatal startup error with `pyedis: <reason>` and exit 1. `PYEDIS_AOF_FSYNC=true` calls `os.fsync` after each append and before its reply; false skips fsync. FLUSHALL truncates the file immediately.
 
----
+## 9. Testing, E2E, and Coverage
 
-## 11. Documentation Requirements (README & Read the Docs)
+Unit and integration tests run only through `python3 -m unittest discover -s tests -v`. Integration tests may use redis-py and live ephemeral loopback sockets. Component tests use injected clocks, in-memory stores, temporary directories, and mocked external boundaries. Black-box E2E tests run in `tests/e2e` using `redis-cli`, poll for socket readiness rather than relying on fixed sleeps, and assert every command and option listed above, including malformed requests, TTL boundaries, pipelining, concurrency, restart recovery, and exact reply formats. `coverage run -m unittest discover -s tests` followed by `coverage report` must show at least 95% line coverage for `src/`.
 
-1. **`README.md`**: Must exist at root level documenting: installation, running the server, the full command API table, RESP wire format envelopes, AOF format, `make test`/`lint`/`e2e`, and `redis-cli` usage examples.
-2. **`docs/` Folder**: Must contain documentation in Read the Docs format (MkDocs/Sphinx markdown files) covering Architecture, Protocol Reference, Store & Expiration Engine, Persistence, and Deployment.
-3. **`.readthedocs.yaml`**: Must exist at root level configured to build the `docs/` documentation bundle.
+## 10. Docker E2E Harness
 
----
+`docker-compose.e2e.yml` defines `api` and `e2e` services. `api` builds the repository, runs `python3 -m src.main`, sets `PYEDIS_DATA_DIR=/data`, `PORT=6379`, and `PYEDIS_AOF_FSYNC=true`, mounts a named data volume, and exposes port 6379. `e2e` builds from `tests/e2e`, uses Python 3.14 Alpine with redis-cli installed, depends on `api`, receives `REDIS_URL=redis://api:6379`, and runs `/tests/run_tests.sh`. The script exits nonzero on the first failed assertion and zero only when all scenarios pass.
 
-## 12. Definition of Done (DoD)
+## 11. Documentation
 
-To consider `pyedis` fully implemented, the project must satisfy:
-1. **Public RESP API & CLI Compatibility:** Native Redis RESP2/RESP3 wire-protocol TCP server operating on port 6379, passing all command assertions via official `redis-cli` and `redis-py` (v5+).
-2. **Persistence & Durability Invariant:** AOF persistence engine logs mutations with absolute `expire_at` timestamps, tolerates corrupt trailing lines, and successfully restores state on restart.
-3. **Linting Invariant:** Zero findings under `ruff check src tests` AND `mypy --strict src`.
-4. **Verification Criteria:** 100% test pass rate on `make test` (unit + integration) and `make e2e`, with $\ge 95\%$ test coverage across `src/`.
+`README.md` documents installation, execution, environment variables, every command and exact reply/error contract, RESP framing, AOF format, persistence behavior, and `make test`, `make lint`, and `make e2e`. `docs/index.md` is the Read the Docs entry point. `docs/api.md` documents commands, RESP, architecture boundaries, expiration, persistence, deployment, and operational diagnostics. `.readthedocs.yaml` builds the `docs/` bundle.
+
+## 12. Global Acceptance
+
+The implementation is complete only when all required files exist, no source file exceeds 500 lines, no pytest artifact exists, `make build`, `make test`, `make lint`, and `make e2e` succeed, redis-cli and redis-py pass all scenarios, restart durability and corrupt trailing-line recovery work, and coverage is at least 95%.

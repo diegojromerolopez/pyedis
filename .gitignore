@@ -1,8 +1,4 @@
+data/
 __pycache__/
 *.pyc
 .venv/
-data/
-.coverage
-htmlcov/
-.mypy_cache/
-.ruff_cache/

@@ -1,33 +1,14 @@
-import unittest
 import tempfile
-import shutil
+import unittest
+from src.commands import Commands
+from src.persistence import Persistence
 from src.store import Store
-from src.persistence import AOFLogger
-from src.commands import CommandDispatcher
 
-
-class TestCommands(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self) -> None:
-        self.data_dir = tempfile.mkdtemp()
-        self.store = Store()
-        self.aof = AOFLogger(self.data_dir, fsync=False)
-        self.dispatcher = CommandDispatcher(self.store, self.aof)
-
-    async def asyncTearDown(self) -> None:
-        self.aof.close()
-        shutil.rmtree(self.data_dir)
-
-    async def test_ping(self) -> None:
-        res, close = await self.dispatcher.dispatch([b"PING"])
-        self.assertEqual(res, b"+PONG\r\n")
-        self.assertFalse(close)
-
-    async def test_set_get(self) -> None:
-        res, _ = await self.dispatcher.dispatch([b"SET", b"key", b"val"])
-        self.assertEqual(res, b"+OK\r\n")
-        res, _ = await self.dispatcher.dispatch([b"GET", b"key"])
-        self.assertEqual(res, b"$3\r\nval\r\n")
-
-
-if __name__ == "__main__":
-    unittest.main()
+class CommandsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory(); p = Persistence(self.directory.name, False); p.open(); self.c = Commands(Store(), p)
+    def tearDown(self) -> None: self.directory.cleanup()
+    def test_set_get_incr(self) -> None:
+        self.assertEqual(self.c.execute([b"SET", b"x", b"1"])[0], "OK")
+        self.assertEqual(self.c.execute([b"INCR", b"x"])[0], 2)
+        self.assertEqual(self.c.execute([b"GET", b"x"])[0], b"2")

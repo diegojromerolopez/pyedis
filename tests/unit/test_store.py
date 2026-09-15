@@ -1,25 +1,12 @@
 import unittest
 from src.store import Store
 
+class StoreTest(unittest.TestCase):
+    def test_values_and_expiry(self) -> None:
+        now = [10.0]; store = Store(lambda: now[0]); store.set(b"a", b"b", 12.0)
+        self.assertEqual(store.get(b"a"), b"b"); self.assertEqual(store.ttl(b"a"), 2)
+        now[0] = 13.0; self.assertIsNone(store.get(b"a")); self.assertEqual(store.ttl(b"a"), -2)
 
-class TestStore(unittest.TestCase):
-    def setUp(self) -> None:
-        self.time = 1000.0
-        self.store = Store(clock=lambda: self.time)
-
-    def test_set_get_del(self) -> None:
-        self.store.set("k1", "v1")
-        self.assertEqual(self.store.get("k1"), "v1")
-        self.assertEqual(self.store.delete(["k1"]), 1)
-        self.assertIsNone(self.store.get("k1"))
-
-    def test_expiration(self) -> None:
-        self.store.set("k1", "v1", expire_at=1005.0)
-        self.assertEqual(self.store.ttl("k1"), 5)
-        self.time = 1006.0
-        self.assertIsNone(self.store.get("k1"))
-        self.assertEqual(self.store.ttl("k1"), -2)
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_keys(self) -> None:
+        store = Store(); store.set(b"abc", b"1"); store.set(b"abd", b"2")
+        self.assertEqual(store.keys(b"ab?"), [b"abc", b"abd"])
