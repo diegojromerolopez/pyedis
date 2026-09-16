@@ -36,7 +36,12 @@ class Store:
             return key in self.values
 
     async def set(
-        self, key: str, value: str, expire_at: float | None = None, nx: bool = False, xx: bool = False
+        self,
+        key: str,
+        value: str,
+        expire_at: float | None = None,
+        nx: bool = False,
+        xx: bool = False,
     ) -> bool:
         async with self.lock:
             self._purge(key)
@@ -105,7 +110,9 @@ class Store:
     async def keys(self, pattern: str) -> list[str]:
         async with self.lock:
             self._sweep()
-            return sorted(key for key in self.values if fnmatch.fnmatchcase(key, pattern))
+            return sorted(
+                key for key in self.values if fnmatch.fnmatchcase(key, pattern)
+            )
 
     async def flush(self) -> None:
         async with self.lock:
