@@ -41,7 +41,9 @@ class Dispatcher:
             or (name == "SET" and len(args) < 2)
             or (name == "PING" and len(args) > 1)
         ):
-            return error(f"ERR wrong number of arguments for '{name.lower()}' command"), False
+            return error(
+                f"ERR wrong number of arguments for '{name.lower()}' command"
+            ), False
         if name == "PING":
             return (simple("PONG") if not args else bulk(parts[1])), False
         if name == "ECHO":
@@ -51,7 +53,9 @@ class Dispatcher:
         if name == "GET":
             return bulk(await self.store.get(args[0])), False
         if name in {"DEL", "EXISTS"}:
-            value = await (self.store.delete(args) if name == "DEL" else self._exists(args))
+            value = await (
+                self.store.delete(args) if name == "DEL" else self._exists(args)
+            )
             if name == "DEL" and self.aof:
                 for key in args:
                     self.aof.append({"op": "DEL", "key": key})
@@ -98,7 +102,9 @@ class Dispatcher:
                     return error("ERR value is not an integer or out of range")
                 if duration <= 0:
                     return error("ERR value is not an integer or out of range")
-                expire_at = self.store.clock() + duration * (0.001 if flag == "PX" else 1)
+                expire_at = self.store.clock() + duration * (
+                    0.001 if flag == "PX" else 1
+                )
                 index += 2
             else:
                 return error("ERR syntax error")
@@ -106,7 +112,9 @@ class Dispatcher:
             return error("ERR syntax error")
         ok = await self.store.set(args[0], args[1], expire_at, nx, xx)
         if ok and self.aof:
-            self.aof.append({"op": "SET", "key": args[0], "value": args[1], "expire_at": expire_at})
+            self.aof.append(
+                {"op": "SET", "key": args[0], "value": args[1], "expire_at": expire_at}
+            )
         return simple("OK") if ok else bulk(None)
 
     async def _expire(self, args: list[str]) -> bytes:
@@ -116,5 +124,11 @@ class Dispatcher:
             return error("ERR value is not an integer or out of range")
         ok = await self.store.expire(args[0], seconds)
         if ok and self.aof:
-            self.aof.append({"op": "EXPIRE", "key": args[0], "expire_at": self.store.clock() + seconds})
+            self.aof.append(
+                {
+                    "op": "EXPIRE",
+                    "key": args[0],
+                    "expire_at": self.store.clock() + seconds,
+                }
+            )
         return integer(int(ok))
