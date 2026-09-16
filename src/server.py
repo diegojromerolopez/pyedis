@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import signal
+import sys
 from dataclasses import dataclass, field
 
 
@@ -32,10 +34,15 @@ class Store:
         self.expirations.pop(key, None)
 
     def delete(self, keys: list[bytes], now: float) -> int:
-        return sum(
-            self.get(key, now) is not None and self.values.pop(key, None) is not None
-            for key in keys
-        )
+        count = 0
+        for key in keys:
+            if self._expired(key, now):
+                continue
+            if key in self.values:
+                self.values.pop(key)
+                self.expirations.pop(key, None)
+                count += 1
+        return count
 
 
 class RespError(Exception):
@@ -120,9 +127,34 @@ def execute(parts: list[bytes], store: Store, now: float) -> tuple[bytes, bool]:
     if command == b"QUIT":
         return encode_simple(b"OK"), True
     if command == b"SET":
-        if len(args) != 2:
+        if len(args) < 2:
             return encode_error("wrong number of arguments for 'set' command"), False
-        store.set(args[0], args[1])
+        key = args[0]
+        value = args[1]
+        # Parse optional flags
+        nx = False
+        xx = False
+        i = 2
+        while i < len(args):
+            flag = args[i].upper()
+            if flag == b"NX":
+                nx = True
+                i += 1
+            elif flag == b"XX":
+                xx = True
+                i += 1
+            elif flag == b"EX" or flag == b"PX":
+                i += 2  # skip value
+            else:
+                i += 1
+        if nx and xx:
+            return encode_error("syntax error"), False
+        exists = store.get(key, now) is not None
+        if nx and exists:
+            return encode_bulk(None), False
+        if xx and not exists:
+            return encode_bulk(None), False
+        store.set(key, value)
         return encode_simple(b"OK"), False
     if command == b"GET":
         if len(args) != 1:
@@ -159,7 +191,7 @@ def execute(parts: list[bytes], store: Store, now: float) -> tuple[bytes, bool]:
         store.values.clear()
         store.expirations.clear()
         return encode_simple(b"OK"), False
-    return encode_error("unknown command"), False
+    return encode_error(f"unknown command '{parts[0].decode(errors='replace')}'"), False
 
 
 async def _read_request(reader: asyncio.StreamReader) -> list[bytes]:
@@ -203,10 +235,11 @@ async def client_session(
                 response, close = execute(
                     parts, store, asyncio.get_running_loop().time()
                 )
-            except (RespError, ValueError, asyncio.IncompleteReadError):
+            except (RespError, ValueError) as exc:
                 response, close = encode_error("protocol error"), False
-                if isinstance(_, asyncio.IncompleteReadError):
-                    break
+                del exc
+            except asyncio.IncompleteReadError:
+                break
             writer.write(response)
             await writer.drain()
             if close:
@@ -219,14 +252,20 @@ async def client_session(
 
 
 async def run_server(
-    host: str = "127.0.0.1", port: int = 6379, data_dir: str | None = None
+    host: str = "127.0.0.1", port: int | None = None, data_dir: str | None = None
 ) -> None:
     """Listen for clients until cancellation or SIGINT/SIGTERM."""
     del data_dir
+    if port is None:
+        port = int(os.getenv("PORT", "6379"))
     store = Store()
-    server = await asyncio.start_server(
-        lambda reader, writer: client_session(reader, writer, store), host, port
-    )
+    try:
+        server = await asyncio.start_server(
+            lambda reader, writer: client_session(reader, writer, store), host, port
+        )
+    except OSError as exc:
+        print(f"pyedis: {exc}", file=sys.stderr)
+        sys.exit(1)
     stopped = asyncio.Event()
     loop = asyncio.get_running_loop()
     for name in ("SIGINT", "SIGTERM"):

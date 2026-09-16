@@ -22,7 +22,14 @@ class Store:
         for key in list(self.expirations):
             self._purge(key)
 
-    async def set(self, key: str, value: bytes, expire_at: float | None = None, nx: bool = False, xx: bool = False) -> bool:
+    async def set(
+        self,
+        key: str,
+        value: bytes,
+        expire_at: float | None = None,
+        nx: bool = False,
+        xx: bool = False,
+    ) -> bool:
         async with self.lock:
             self._purge(key)
             exists = key in self.values
@@ -80,7 +87,9 @@ class Store:
     async def keys(self, pattern: str) -> list[str]:
         async with self.lock:
             self._sweep()
-            return sorted(key for key in self.values if fnmatch.fnmatchcase(key, pattern))
+            return sorted(
+                key for key in self.values if fnmatch.fnmatchcase(key, pattern)
+            )
 
     async def flush(self) -> None:
         async with self.lock:
