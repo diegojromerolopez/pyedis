@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 
-from src.main import Store, encode_bulk, encode_simple, execute, parse_request
+from src.server import Store, encode_bulk, encode_simple, execute, parse_request
 
 
 class RespAndCommandTests(unittest.TestCase):
@@ -29,7 +29,7 @@ class RespAndCommandTests(unittest.TestCase):
         self.assertTrue(response.startswith(b"-ERR "))
         self.assertFalse(close)
         response, _ = execute([b"NOPE"], self.store, 0)
-        self.assertEqual(response, b"-ERR unknown command\r\n")
+        self.assertEqual(response, b"-ERR unknown command 'NOPE'\r\n")
 
     def test_mutating_commands(self) -> None:
         response, _ = execute([b"INCR", b"counter"], self.store, 0)
@@ -50,11 +50,9 @@ class RespAndCommandTests(unittest.TestCase):
 class EntrypointTests(unittest.TestCase):
     def test_run_server_can_be_cancelled_without_persistence(self) -> None:
         async def scenario() -> None:
-            task = asyncio.create_task(
-                __import__("src.main", fromlist=["run_server"]).run_server(
-                    "127.0.0.1", 0, "unused"
-                )
-            )
+            from src.server import run_server
+
+            task = asyncio.create_task(run_server("127.0.0.1", 0, "unused"))
             await asyncio.sleep(0)
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):

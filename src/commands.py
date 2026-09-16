@@ -27,23 +27,87 @@ class Dispatcher:
             if values:
                 return self._arity("quit"), False
             return simple("OK"), True
+        if name == "SET":
+            if len(values) < 2:
+                return self._arity("set"), False
+            key = values[0].decode()
+            value = values[1]
+            nx = False
+            xx = False
+            expire_at: float | None = None
+            i = 2
+            while i < len(values):
+                flag = values[i].decode(errors="replace").upper()
+                if flag == "NX":
+                    nx = True
+                    i += 1
+                elif flag == "XX":
+                    xx = True
+                    i += 1
+                elif flag == "EX":
+                    if i + 1 >= len(values):
+                        return error("ERR syntax error"), False
+                    try:
+                        seconds = int(values[i + 1])
+                    except ValueError:
+                        return error(
+                            "ERR value is not an integer or out of range"
+                        ), False
+                    if seconds <= 0:
+                        return error(
+                            "ERR value is not an integer or out of range"
+                        ), False
+                    expire_at = self.store.clock() + seconds
+                    i += 2
+                elif flag == "PX":
+                    if i + 1 >= len(values):
+                        return error("ERR syntax error"), False
+                    try:
+                        ms = int(values[i + 1])
+                    except ValueError:
+                        return error(
+                            "ERR value is not an integer or out of range"
+                        ), False
+                    if ms <= 0:
+                        return error(
+                            "ERR value is not an integer or out of range"
+                        ), False
+                    expire_at = self.store.clock() + ms / 1000.0
+                    i += 2
+                else:
+                    return error("ERR syntax error"), False
+            if nx and xx:
+                return error("ERR syntax error"), False
+            result = await self.store.set(key, value, expire_at, nx=nx, xx=xx)
+            if not result:
+                return bulk(None), False
+            self.aof.append(
+                {
+                    "op": "SET",
+                    "key": key,
+                    "value": value.decode(errors="replace"),
+                    "expire_at": expire_at,
+                }
+            )
+            return simple("OK"), False
         if name == "GET":
             if len(values) != 1:
                 return self._arity("get"), False
             return bulk(await self.store.get(values[0].decode())), False
-        if name in ("DEL", "EXISTS"):
+        if name == "DEL":
             if not values:
-                return self._arity(name.lower()), False
+                return self._arity("del"), False
             keys = [v.decode() for v in values]
-            result = (
-                await self.store.delete(keys)
-                if name == "DEL"
-                else sum(await self.store.exists(k) for k in keys)
-            )
-            if name == "DEL":
+            count = await self.store.delete(keys)
+            if count > 0:
                 for key in keys:
                     self.aof.append({"op": "DEL", "key": key})
-            return integer(int(result)), False
+            return integer(count), False
+        if name == "EXISTS":
+            if not values:
+                return self._arity("exists"), False
+            count = sum(await self.store.exists(v.decode()) for v in values)
+            return integer(count), False
         if name in ("INCR", "DECR"):
             if len(values) != 1:
                 return self._arity(name.lower()), False
@@ -84,7 +148,6 @@ class Dispatcher:
             if values:
                 return self._arity("flushall"), False
             await self.store.flush()
-            self.aof.append({"op": "FLUSHALL"})
             self.aof.truncate()
             return simple("OK"), False
         if name == "COMMAND":

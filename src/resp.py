@@ -23,7 +23,6 @@ def bulk(value: bytes | str | None) -> bytes:
 
 
 def array(values: Iterable[bytes | str | None]) -> bytes:
-    encoded = b"".join(bulk(value) for value in values)
     values_list = list(values)
     encoded = b"".join(bulk(value) for value in values_list)
     return b"*" + str(len(values_list)).encode() + b"\r\n" + encoded

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import select
+import signal
 import socket
 import subprocess
 import sys
@@ -45,7 +46,7 @@ class ServerIntegrationTests(unittest.TestCase):
         finally:
             if connection is not None:
                 connection.close()
-            process.terminate()
+            process.send_signal(signal.SIGTERM)
             try:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
