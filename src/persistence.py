@@ -14,6 +14,8 @@ from .store import Store
 class AOF:
     def __init__(self, path: str | Path, fsync: bool = True) -> None:
         self.path = Path(path)
+        if self.path.exists() and self.path.is_dir():
+            self.path = self.path / "dump.aof"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.fsync = fsync
 

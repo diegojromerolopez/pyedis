@@ -60,6 +60,12 @@ class Store:
                     self.expirations.pop(key, None)
             return count
 
+    async def number(self, key: str, amount: int) -> int:
+        result = await self.incr(key, amount)
+        if result is None:
+            raise ValueError("value is not an integer")
+        return result[0]
+
     async def incr(self, key: str, amount: int) -> tuple[int, float | None] | None:
         async with self.lock:
             self._purge(key)
