@@ -1,159 +1,72 @@
+"""Redis command dispatcher."""
 from __future__ import annotations
 
-from src.persistence import AOF
-from src.resp import array, bulk, error, integer, simple
-from src.store import Store
+from .persistence import AOF
+from .resp import bulk, error, integer, simple, array
+from .store import Store
 
 
 class Dispatcher:
-    def __init__(self, store: Store, aof: AOF) -> None:
+    def __init__(self, store: Store, aof: AOF | None = None) -> None:
         self.store = store
         self.aof = aof
 
-    async def execute(self, args: list[bytes]) -> tuple[bytes, bool]:
-        if not args:
+    async def execute(self, parts: list[bytes]) -> tuple[bytes, bool]:
+        if not parts:
             return error("ERR empty command"), False
-        name = args[0].decode(errors="replace").upper()
-        values = args[1:]
-        if name == "PING":
-            if len(values) > 1:
-                return self._arity("ping"), False
-            return (simple("PONG") if not values else bulk(values[0])), False
-        if name == "ECHO":
-            if len(values) != 1:
-                return self._arity("echo"), False
-            return bulk(values[0]), False
-        if name == "QUIT":
-            if values:
-                return self._arity("quit"), False
-            return simple("OK"), True
-        if name == "SET":
-            if len(values) < 2:
-                return self._arity("set"), False
-            key = values[0].decode()
-            value = values[1]
-            nx = False
-            xx = False
-            expire_at: float | None = None
-            i = 2
-            while i < len(values):
-                flag = values[i].decode(errors="replace").upper()
-                if flag == "NX":
-                    nx = True
-                    i += 1
-                elif flag == "XX":
-                    xx = True
-                    i += 1
-                elif flag == "EX":
-                    if i + 1 >= len(values):
-                        return error("ERR syntax error"), False
-                    try:
-                        seconds = int(values[i + 1])
-                    except ValueError:
-                        return error(
-                            "ERR value is not an integer or out of range"
-                        ), False
-                    if seconds <= 0:
-                        return error(
-                            "ERR value is not an integer or out of range"
-                        ), False
-                    expire_at = self.store.clock() + seconds
-                    i += 2
-                elif flag == "PX":
-                    if i + 1 >= len(values):
-                        return error("ERR syntax error"), False
-                    try:
-                        ms = int(values[i + 1])
-                    except ValueError:
-                        return error(
-                            "ERR value is not an integer or out of range"
-                        ), False
-                    if ms <= 0:
-                        return error(
-                            "ERR value is not an integer or out of range"
-                        ), False
-                    expire_at = self.store.clock() + ms / 1000.0
-                    i += 2
-                else:
-                    return error("ERR syntax error"), False
-            if nx and xx:
-                return error("ERR syntax error"), False
-            result = await self.store.set(key, value, expire_at, nx=nx, xx=xx)
-            if not result:
-                return bulk(None), False
-            self.aof.append(
-                {
-                    "op": "SET",
-                    "key": key,
-                    "value": value.decode(errors="replace"),
-                    "expire_at": expire_at,
-                }
-            )
-            return simple("OK"), False
-        if name == "GET":
-            if len(values) != 1:
-                return self._arity("get"), False
-            return bulk(await self.store.get(values[0].decode())), False
-        if name == "DEL":
-            if not values:
-                return self._arity("del"), False
-            keys = [v.decode() for v in values]
-            count = await self.store.delete(keys)
-            if count > 0:
-                for key in keys:
-                    self.aof.append({"op": "DEL", "key": key})
-            return integer(count), False
-        if name == "EXISTS":
-            if not values:
-                return self._arity("exists"), False
-            count = sum(await self.store.exists(v.decode()) for v in values)
-            return integer(count), False
-        if name in ("INCR", "DECR"):
-            if len(values) != 1:
-                return self._arity(name.lower()), False
-            key = values[0].decode()
-            try:
-                result = await self.store.number(key, 1 if name == "INCR" else -1)
-            except ValueError:
-                return error("ERR value is not an integer or out of range"), False
-            self.aof.append({"op": name, "key": key})
-            return integer(result), False
-        if name == "TTL":
-            if len(values) != 1:
-                return self._arity("ttl"), False
-            return integer(await self.store.ttl(values[0].decode())), False
-        if name == "EXPIRE":
-            if len(values) != 2:
-                return self._arity("expire"), False
-            try:
-                seconds = int(values[1])
-            except ValueError:
-                return error("ERR value is not an integer or out of range"), False
-            key = values[0].decode()
-            result = await self.store.expire(key, seconds)
-            if result:
-                self.aof.append(
-                    {
-                        "op": "EXPIRE",
-                        "key": key,
-                        "expire_at": self.store.clock() + seconds,
-                    }
-                )
-            return integer(int(result)), False
-        if name == "KEYS":
-            if len(values) != 1:
-                return self._arity("keys"), False
-            return array(await self.store.keys(values[0].decode())), False
-        if name == "FLUSHALL":
-            if values:
-                return self._arity("flushall"), False
-            await self.store.flush()
-            self.aof.truncate()
-            return simple("OK"), False
-        if name == "COMMAND":
-            return array([]), False
-        return error(f"ERR unknown command '{args[0].decode(errors='replace')}'"), False
+        name = parts[0].decode(errors="replace").upper()
+        args = [part.decode(errors="surrogateescape") for part in parts[1:]]
+        expected: dict[str, int | None] = {"PING": None, "ECHO": 1, "QUIT": 0, "SET": None, "GET": 1, "DEL": None, "EXISTS": None, "INCR": 1, "DECR": 1, "EXPIRE": 2, "TTL": 1, "KEYS": 1, "FLUSHALL": 0}
+        if name not in expected:
+            return error(f"ERR unknown command '{name}'"), False
+        arity = expected[name]
+        if (arity is not None and len(args) != arity) or (name in {"DEL", "EXISTS"} and not args) or (name == "SET" and len(args) < 2) or (name == "PING" and len(args) > 1):
+            return error(f"ERR wrong number of arguments for '{name.lower()}' command"), False
+        if name == "PING": return (simple("PONG") if not args else bulk(parts[1])), False
+        if name == "ECHO": return bulk(parts[1]), False
+        if name == "QUIT": return simple("OK"), True
+        if name == "GET": return bulk(await self.store.get(args[0])), False
+        if name in {"DEL", "EXISTS"}:
+            value = await (self.store.delete(args) if name == "DEL" else self._exists(args))
+            if name == "DEL" and self.aof:
+                for key in args: self.aof.append({"op": "DEL", "key": key})
+            return integer(value), False
+        if name in {"INCR", "DECR"}:
+            result = await self.store.incr(args[0], 1 if name == "INCR" else -1)
+            if result is None: return error("ERR value is not an integer or out of range"), False
+            if self.aof: self.aof.append({"op": name, "key": args[0]})
+            return integer(result[0]), False
+        if name == "SET": return await self._set(args), False
+        if name == "EXPIRE": return await self._expire(args), False
+        if name == "TTL": return integer(await self.store.ttl(args[0])), False
+        if name == "KEYS": return array(await self.store.keys(args[0])), False
+        await self.store.flush()
+        if self.aof: self.aof.append({"op": "FLUSHALL"}); self.aof.truncate()
+        return simple("OK"), False
 
-    @staticmethod
-    def _arity(command: str) -> bytes:
-        return error(f"ERR wrong number of arguments for '{command}' command")
+    async def _exists(self, keys: list[str]) -> int:
+        return sum(1 for key in keys if await self.store.exists(key))
+
+    async def _set(self, args: list[str]) -> bytes:
+        expire_at = None; nx = False; xx = False; index = 2
+        while index < len(args):
+            flag = args[index].upper()
+            if flag in {"NX", "XX"}:
+                nx = nx or flag == "NX"; xx = xx or flag == "XX"; index += 1
+            elif flag in {"EX", "PX"} and index + 1 < len(args):
+                try: duration = int(args[index + 1])
+                except ValueError: return error("ERR value is not an integer or out of range")
+                if duration <= 0: return error("ERR value is not an integer or out of range")
+                expire_at = self.store.clock() + duration * (0.001 if flag == "PX" else 1); index += 2
+            else: return error("ERR syntax error")
+        if nx and xx: return error("ERR syntax error")
+        ok = await self.store.set(args[0], args[1], expire_at, nx, xx)
+        if ok and self.aof: self.aof.append({"op": "SET", "key": args[0], "value": args[1], "expire_at": expire_at})
+        return simple("OK") if ok else bulk(None)
+
+    async def _expire(self, args: list[str]) -> bytes:
+        try: seconds = int(args[1])
+        except ValueError: return error("ERR value is not an integer or out of range")
+        ok = await self.store.expire(args[0], seconds)
+        if ok and self.aof: self.aof.append({"op": "EXPIRE", "key": args[0], "expire_at": self.store.clock() + seconds})
+        return integer(int(ok))

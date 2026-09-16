@@ -5,9 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pyedis"
 version = "0.1.0"
-description = "A small Python RESP2-compatible in-memory key/value server"
 requires-python = ">=3.10"
-dependencies = []
+[project.optional-dependencies]
+dev = ["redis>=5.0", "ruff>=0.8", "mypy>=1.13", "coverage>=7.6"]
 
 [tool.setuptools]
 packages = ["src"]
+[tool.mypy]
+strict = true
+[tool.ruff]
+line-length = 120

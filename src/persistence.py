@@ -1,15 +1,18 @@
+"""Append-only persistence with absolute expiration timestamps."""
 from __future__ import annotations
 
 import json
+import logging
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
+from .store import Store
+
 
 class AOF:
-    def __init__(self, directory: str, fsync: bool = True) -> None:
-        self.path = Path(directory) / "dump.aof"
+    def __init__(self, path: str | Path, fsync: bool = True) -> None:
+        self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.fsync = fsync
 
@@ -23,7 +26,7 @@ class AOF:
     def truncate(self) -> None:
         self.path.write_text("", encoding="utf-8")
 
-    async def replay(self, store: Any) -> None:
+    async def replay(self, store: Store) -> None:
         if not self.path.exists():
             return
         for line in self.path.read_text(encoding="utf-8").splitlines():
@@ -31,20 +34,21 @@ class AOF:
                 record = json.loads(line)
                 op = record["op"]
                 if op == "SET":
-                    await store.set(
-                        record["key"], record["value"].encode(), record.get("expire_at")
-                    )
+                    expiry = record.get("expire_at")
+                    if expiry is None or float(expiry) > store.clock():
+                        await store.set(record["key"], record["value"], expiry)
                 elif op == "DEL":
                     await store.delete([record["key"]])
+                elif op in ("INCR", "DECR"):
+                    await store.incr(record["key"], 1 if op == "INCR" else -1)
                 elif op == "EXPIRE":
-                    await store.set(
-                        record["key"],
-                        await store.get(record["key"]),
-                        record["expire_at"],
-                    )
+                    if float(record["expire_at"]) <= store.clock():
+                        await store.delete([record["key"]])
+                    else:
+                        async with store.lock:
+                            if record["key"] in store.values:
+                                store.expirations[record["key"]] = float(record["expire_at"])
                 elif op == "FLUSHALL":
                     await store.flush()
-                elif op in ("INCR", "DECR"):
-                    await store.number(record["key"], 1 if op == "INCR" else -1)
-            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-                print("pyedis: ignoring corrupt trailing AOF line", file=sys.stderr)
+            except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+                logging.warning("pyedis: ignoring corrupt trailing AOF line")
