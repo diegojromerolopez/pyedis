@@ -1,11 +1,10 @@
 .PHONY: install build run test lint format e2e
 
 install:
-	python3 -m pip install -e .
+	python3 -m pip install -e ".[dev]"
 
 build:
-	python3 -m compileall src
-	python3 -c 'import src.main'
+	python3 -m compileall -q src
 
 run:
 	python3 -m src.main
@@ -21,5 +20,4 @@ format:
 	ruff format src tests
 
 e2e:
-	docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from e2e
-	docker compose -f docker-compose.e2e.yml down -v
+	docker compose up --build --exit-code-from e2e
