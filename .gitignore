@@ -4,6 +4,7 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .coverage
+coverage.xml
 htmlcov/
 .venv/
 venv/
@@ -11,5 +12,7 @@ venv/
 build/
 dist/
 .DS_Store
+Thumbs.db
 *.swp
 *.swo
+*.tmp

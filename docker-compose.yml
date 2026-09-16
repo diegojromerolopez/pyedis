@@ -3,18 +3,18 @@ services:
     build: .
     command: ["python3", "-m", "src.main"]
     environment:
-      PYEDIS_DATA_DIR: "/data"
       PORT: "6379"
+      PYEDIS_DATA_DIR: "/data"
       PYEDIS_AOF_FSYNC: "true"
     volumes:
       - data:/data
     ports:
       - "6379:6379"
-  e2e:
-    build: ./tests/e2e
-    depends_on:
-      - api
-    environment:
-      REDIS_URL: "redis://api:6379"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.create_connection(('127.0.0.1', 6379), 1); s.sendall(b'*1\\r\\n$4\\r\\nPING\\r\\n'); r=s.recv(16); s.close(); raise SystemExit(0 if r.startswith(b'+PONG') else 1)"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+      start_period: 2s
 volumes:
   data:
