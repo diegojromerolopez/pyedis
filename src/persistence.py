@@ -1,4 +1,5 @@
 """Append-only persistence with absolute expiration timestamps."""
+
 from __future__ import annotations
 
 import json

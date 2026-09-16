@@ -12,9 +12,7 @@ class RespTests(unittest.TestCase):
     def test_chunking_and_pipeline(self) -> None:
         decoder = Decoder()
         self.assertEqual(decoder.feed(b"*2\r\n$3\r\n"), [])
-        self.assertEqual(
-            decoder.feed(b"GET\r\n$3\r\nkey\r\nPING\r\n"), [[b"GET", b"key"], [b"PING"]]
-        )
+        self.assertEqual(decoder.feed(b"GET\r\n$3\r\nkey\r\nPING\r\n"), [[b"GET", b"key"], [b"PING"]])
 
     def test_inline(self) -> None:
         self.assertEqual(Decoder().feed(b"SET k value\r\n"), [[b"SET", b"k", b"value"]])

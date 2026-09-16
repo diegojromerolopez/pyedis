@@ -6,12 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "pyedis"
 version = "0.1.0"
 requires-python = ">=3.10"
-[project.optional-dependencies]
-dev = ["redis>=5.0", "ruff>=0.8", "mypy>=1.13", "coverage>=7.6"]
+dependencies = []
 
 [tool.setuptools]
 packages = ["src"]
-[tool.mypy]
-strict = true
-[tool.ruff]
-line-length = 120

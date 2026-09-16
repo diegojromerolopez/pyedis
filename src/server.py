@@ -1,271 +1,102 @@
-"""Asyncio RESP2 server implementation."""
+"""Minimal asyncio TCP server implementing the PING walking skeleton."""
 
 from __future__ import annotations
 
 import asyncio
 import os
 import signal
-import sys
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
+
+PING_RESP = b"+PONG\r\n"
+RESP_PING = b"*1\r\n$4\r\nPING\r\n"
 
 
-@dataclass
-class Store:
-    """In-memory key/value state used by the server."""
-
-    values: dict[bytes, bytes] = field(default_factory=dict)
-    expirations: dict[bytes, float] = field(default_factory=dict)
-
-    def _expired(self, key: bytes, now: float) -> bool:
-        expires = self.expirations.get(key)
-        if expires is not None and expires <= now:
-            self.values.pop(key, None)
-            self.expirations.pop(key, None)
-            return True
-        return False
-
-    def get(self, key: bytes, now: float) -> bytes | None:
-        if self._expired(key, now):
-            return None
-        return self.values.get(key)
-
-    def set(self, key: bytes, value: bytes) -> None:
-        self.values[key] = value
-        self.expirations.pop(key, None)
-
-    def delete(self, keys: list[bytes], now: float) -> int:
-        count = 0
-        for key in keys:
-            if self._expired(key, now):
-                continue
-            if key in self.values:
-                self.values.pop(key)
-                self.expirations.pop(key, None)
-                count += 1
-        return count
+class ProtocolError(Exception):
+    """Raised when a client sends an unsupported or malformed request."""
 
 
-class RespError(Exception):
-    """A malformed RESP request."""
+def parse_ping(request: bytes) -> bool:
+    """Return whether request is one of the supported PING wire formats."""
+    if request == b"PING\r\n":
+        return True
+    if request == RESP_PING:
+        return True
+    raise ProtocolError("expected PING")
 
 
-def encode_simple(value: bytes) -> bytes:
-    return b"+" + value + b"\r\n"
-
-
-def encode_error(message: str) -> bytes:
-    return b"-ERR " + message.encode() + b"\r\n"
-
-
-def encode_integer(value: int) -> bytes:
-    return f":{value}\r\n".encode()
-
-
-def encode_bulk(value: bytes | None) -> bytes:
-    if value is None:
-        return b"$-1\r\n"
-    return b"$" + str(len(value)).encode() + b"\r\n" + value + b"\r\n"
-
-
-def encode_array(values: list[bytes]) -> bytes:
-    return (
-        b"*"
-        + str(len(values)).encode()
-        + b"\r\n"
-        + b"".join(encode_bulk(value) for value in values)
-    )
-
-
-def parse_request(data: bytes) -> tuple[list[bytes], bytes]:
-    if not data.startswith(b"*"):
-        raise RespError("expected array")
-    line_end = data.find(b"\r\n")
-    if line_end < 0:
-        raise RespError("invalid request")
-    try:
-        count = int(data[1:line_end])
-    except ValueError as exc:
-        raise RespError("invalid array length") from exc
-    if count < 0:
-        raise RespError("invalid array length")
-    position = line_end + 2
-    parts: list[bytes] = []
-    for _ in range(count):
-        if position >= len(data) or data[position : position + 1] != b"$":
-            raise RespError("expected bulk string")
-        end = data.find(b"\r\n", position)
-        if end < 0:
-            raise RespError("invalid bulk string")
-        try:
-            length = int(data[position + 1 : end])
-        except ValueError as exc:
-            raise RespError("invalid bulk length") from exc
-        if length < 0:
-            raise RespError("null bulk string")
-        start = end + 2
-        finish = start + length
-        if finish + 2 > len(data) or data[finish : finish + 2] != b"\r\n":
-            raise RespError("incomplete bulk string")
-        parts.append(data[start:finish])
-        position = finish + 2
-    return parts, data[position:]
-
-
-def execute(parts: list[bytes], store: Store, now: float) -> tuple[bytes, bool]:
-    if not parts:
-        return encode_error("empty command"), False
-    command = parts[0].upper()
-    args = parts[1:]
-    if command == b"PING":
-        if len(args) > 1:
-            return encode_error("wrong number of arguments for 'ping' command"), False
-        return (encode_bulk(args[0]) if args else encode_simple(b"PONG")), False
-    if command == b"ECHO":
-        if len(args) != 1:
-            return encode_error("wrong number of arguments for 'echo' command"), False
-        return encode_bulk(args[0]), False
-    if command == b"QUIT":
-        return encode_simple(b"OK"), True
-    if command == b"SET":
-        if len(args) < 2:
-            return encode_error("wrong number of arguments for 'set' command"), False
-        key = args[0]
-        value = args[1]
-        # Parse optional flags
-        nx = False
-        xx = False
-        i = 2
-        while i < len(args):
-            flag = args[i].upper()
-            if flag == b"NX":
-                nx = True
-                i += 1
-            elif flag == b"XX":
-                xx = True
-                i += 1
-            elif flag == b"EX" or flag == b"PX":
-                i += 2  # skip value
-            else:
-                i += 1
-        if nx and xx:
-            return encode_error("syntax error"), False
-        exists = store.get(key, now) is not None
-        if nx and exists:
-            return encode_bulk(None), False
-        if xx and not exists:
-            return encode_bulk(None), False
-        store.set(key, value)
-        return encode_simple(b"OK"), False
-    if command == b"GET":
-        if len(args) != 1:
-            return encode_error("wrong number of arguments for 'get' command"), False
-        return encode_bulk(store.get(args[0], now)), False
-    if command == b"DEL":
-        if not args:
-            return encode_error("wrong number of arguments for 'del' command"), False
-        return encode_integer(store.delete(args, now)), False
-    if command == b"EXISTS":
-        if not args:
-            return encode_error("wrong number of arguments for 'exists' command"), False
-        return encode_integer(
-            sum(store.get(key, now) is not None for key in args)
-        ), False
-    if command in (b"INCR", b"DECR"):
-        if len(args) != 1:
-            name = command.decode().lower()
-            return encode_error(
-                f"wrong number of arguments for '{name}' command"
-            ), False
-        current = store.get(args[0], now)
-        try:
-            value = int(current or b"0") + (1 if command == b"INCR" else -1)
-        except ValueError:
-            return encode_error("value is not an integer or out of range"), False
-        store.set(args[0], str(value).encode())
-        return encode_integer(value), False
-    if command == b"FLUSHALL":
-        if args:
-            return encode_error(
-                "wrong number of arguments for 'flushall' command"
-            ), False
-        store.values.clear()
-        store.expirations.clear()
-        return encode_simple(b"OK"), False
-    return encode_error(f"unknown command '{parts[0].decode(errors='replace')}'"), False
-
-
-async def _read_request(reader: asyncio.StreamReader) -> list[bytes]:
-    first = await reader.readline()
-    if not first:
-        raise asyncio.IncompleteReadError(partial=b"", expected=1)
-    if first.startswith(b"*"):
-        try:
-            count = int(first[1:-2])
-        except ValueError as exc:
-            raise RespError("invalid array length") from exc
-        if count < 0:
-            raise RespError("invalid array length")
-        request = first
-        for _ in range(count):
-            header = await reader.readline()
-            if not header.startswith(b"$"):
-                raise RespError("expected bulk string")
-            try:
-                length = int(header[1:-2])
-            except ValueError as exc:
-                raise RespError("invalid bulk length") from exc
-            if length < 0:
-                raise RespError("null bulk string")
-            body = await reader.readexactly(length + 2)
-            request += header + body
-        parts, _ = parse_request(request)
-        return parts
-    if not first.endswith(b"\r\n"):
-        raise RespError("invalid inline command")
-    return first[:-2].split()
-
-
-async def client_session(
-    reader: asyncio.StreamReader, writer: asyncio.StreamWriter, store: Store
-) -> None:
+async def client_session(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Serve requests on one connection until EOF or a protocol error."""
     try:
         while True:
-            try:
-                parts = await _read_request(reader)
-                response, close = execute(
-                    parts, store, asyncio.get_running_loop().time()
-                )
-            except (RespError, ValueError) as exc:
-                response, close = encode_error("protocol error"), False
-                del exc
-            except asyncio.IncompleteReadError:
+            first = await reader.readline()
+            if not first:
                 break
-            writer.write(response)
+            if first == b"PING\r\n":
+                request = first
+            elif first == b"*1\r\n":
+                header = await reader.readline()
+                if header != b"$4\r\n":
+                    raise ProtocolError("expected PING")
+                body = await reader.readexactly(6)
+                request = first + header + body
+            else:
+                raise ProtocolError("expected PING")
+            parse_ping(request)
+            writer.write(PING_RESP)
             await writer.drain()
-            if close:
-                break
-    except (ConnectionError, asyncio.IncompleteReadError):
-        return
+    except (ProtocolError, asyncio.IncompleteReadError, ConnectionError):
+        pass
     finally:
         writer.close()
-        await writer.wait_closed()
+        try:
+            await writer.wait_closed()
+        except ConnectionError:
+            pass
 
 
-async def run_server(
-    host: str = "127.0.0.1", port: int | None = None, data_dir: str | None = None
-) -> None:
-    """Listen for clients until cancellation or SIGINT/SIGTERM."""
-    del data_dir
-    if port is None:
-        port = int(os.getenv("PORT", "6379"))
-    store = Store()
-    try:
-        server = await asyncio.start_server(
-            lambda reader, writer: client_session(reader, writer, store), host, port
-        )
-    except OSError as exc:
-        print(f"pyedis: {exc}", file=sys.stderr)
-        sys.exit(1)
+class Server:
+    """Controllable asyncio server suitable for in-process integration tests."""
+
+    def __init__(self, host: str = "127.0.0.1", port: int = 6379) -> None:
+        self.host = host
+        self.port = port
+        self._server: asyncio.AbstractServer | None = None
+
+    @property
+    def address(self) -> tuple[str, int]:
+        """Return the bound address, including an OS-selected ephemeral port."""
+        if self._server is None or not self._server.sockets:
+            raise RuntimeError("server is not started")
+        host, port = self._server.sockets[0].getsockname()[:2]
+        return str(host), int(port)
+
+    async def start(self) -> tuple[str, int]:
+        """Bind the listener and return its actual address."""
+        if self._server is None:
+            self._server = await asyncio.start_server(client_session, self.host, self.port)
+            self.host, self.port = self.address
+        return self.address
+
+    async def stop(self) -> None:
+        """Stop accepting connections and release the listening socket."""
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
+            self._server = None
+
+    async def serve_forever(self) -> None:
+        """Run until cancelled while keeping the listener open."""
+        if self._server is None:
+            await self.start()
+        assert self._server is not None
+        await self._server.serve_forever()
+
+
+async def run_server(host: str = "127.0.0.1", port: int | None = None) -> None:
+    """Run the process server until SIGINT, SIGTERM, or cancellation."""
+    selected_port = int(os.getenv("PORT", "6379")) if port is None else port
+    server = Server(host, selected_port)
+    await server.start()
     stopped = asyncio.Event()
     loop = asyncio.get_running_loop()
     for name in ("SIGINT", "SIGTERM"):
@@ -273,5 +104,7 @@ async def run_server(
             loop.add_signal_handler(getattr(signal, name), stopped.set)
         except (NotImplementedError, RuntimeError):
             continue
-    async with server:
+    try:
         await stopped.wait()
+    finally:
+        await server.stop()

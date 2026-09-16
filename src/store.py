@@ -1,4 +1,5 @@
 """Concurrent in-memory store with absolute expirations."""
+
 from __future__ import annotations
 
 import asyncio
@@ -34,7 +35,9 @@ class Store:
             self._purge(key)
             return key in self.values
 
-    async def set(self, key: str, value: str, expire_at: float | None = None, nx: bool = False, xx: bool = False) -> bool:
+    async def set(
+        self, key: str, value: str, expire_at: float | None = None, nx: bool = False, xx: bool = False
+    ) -> bool:
         async with self.lock:
             self._purge(key)
             present = key in self.values
