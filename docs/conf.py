@@ -1,3 +1,3 @@
-project = 'pyedis'
+project = "pyedis"
 extensions = []
-html_theme = 'alabaster'
+html_theme = "alabaster"

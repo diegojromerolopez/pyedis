@@ -1,4 +1,5 @@
 """RESP2 encoding and streaming decoding."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -61,7 +62,7 @@ class Decoder:
         try:
             count = int(header[0])
         except ValueError:
-            del self.buffer[:header[1]]
+            del self.buffer[: header[1]]
             return []
         pos = header[1]
         values: list[bytes] = []
@@ -81,9 +82,9 @@ class Decoder:
                 continue
             if len(self.buffer) < pos + length + 2:
                 return None
-            if self.buffer[pos + length:pos + length + 2] != b"\r\n":
+            if self.buffer[pos + length : pos + length + 2] != b"\r\n":
                 return None
-            values.append(bytes(self.buffer[pos:pos + length]))
+            values.append(bytes(self.buffer[pos : pos + length]))
             pos += length + 2
         del self.buffer[:pos]
         return values
