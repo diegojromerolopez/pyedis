@@ -13,7 +13,9 @@ class RESPTest(unittest.TestCase):
     def test_fragmented_and_pipelined(self) -> None:
         decoder = Decoder()
         self.assertEqual(decoder.feed(b"*1\r\n$4\r\nPI"), [])
-        self.assertEqual(decoder.feed(b"NG\r\n*1\r\n$4\r\nPING\r\n"), [[b"PING"], [b"PING"]])
+        self.assertEqual(
+            decoder.feed(b"NG\r\n*1\r\n$4\r\nPING\r\n"), [[b"PING"], [b"PING"]]
+        )
 
     def test_inline(self) -> None:
         self.assertEqual(Decoder().feed(b"PING hello\r\n"), [[b"PING", b"hello"]])

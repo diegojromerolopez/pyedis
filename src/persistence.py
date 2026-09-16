@@ -50,7 +50,9 @@ class AOF:
                     else:
                         async with store.lock:
                             if record["key"] in store.values:
-                                store.expirations[record["key"]] = float(record["expire_at"])
+                                store.expirations[record["key"]] = float(
+                                    record["expire_at"]
+                                )
                 elif op == "FLUSHALL":
                     await store.flush()
             except (ValueError, KeyError, TypeError, json.JSONDecodeError):
