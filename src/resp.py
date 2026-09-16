@@ -64,12 +64,12 @@ class Decoder:
         try:
             count = int(line[0])
         except ValueError:
-            del self.buffer[:line[1]]
+            del self.buffer[: line[1]]
             return []
         pos = line[1]
         values: list[bytes] = []
         for _ in range(count):
-            if pos >= len(self.buffer) or self.buffer[pos:pos + 1] != b"$":
+            if pos >= len(self.buffer) or self.buffer[pos : pos + 1] != b"$":
                 return None
             header = self._line(pos + 1)
             if header is None:
@@ -84,9 +84,9 @@ class Decoder:
                 continue
             if len(self.buffer) < pos + size + 2:
                 return None
-            if self.buffer[pos + size:pos + size + 2] != b"\r\n":
+            if self.buffer[pos + size : pos + size + 2] != b"\r\n":
                 return None
-            values.append(bytes(self.buffer[pos:pos + size]))
+            values.append(bytes(self.buffer[pos : pos + size]))
             pos += size + 2
         del self.buffer[:pos]
         return values

@@ -9,7 +9,9 @@ from src.resp import Decoder
 from src.store import Store
 
 
-async def client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, dispatcher: Dispatcher) -> None:
+async def client(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter, dispatcher: Dispatcher
+) -> None:
     decoder = Decoder()
     try:
         while data := await reader.read(65536):
@@ -26,10 +28,15 @@ async def client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, dis
 
 async def run_server() -> None:
     store = Store()
-    aof = AOF(os.getenv("PYEDIS_DATA_DIR", "./data"), os.getenv("PYEDIS_AOF_FSYNC", "true").lower() == "true")
+    aof = AOF(
+        os.getenv("PYEDIS_DATA_DIR", "./data"),
+        os.getenv("PYEDIS_AOF_FSYNC", "true").lower() == "true",
+    )
     await aof.replay(store)
     dispatcher = Dispatcher(store, aof)
-    server = await asyncio.start_server(lambda r, w: client(r, w, dispatcher), "0.0.0.0", int(os.getenv("PORT", "6379")))
+    server = await asyncio.start_server(
+        lambda r, w: client(r, w, dispatcher), "0.0.0.0", int(os.getenv("PORT", "6379"))
+    )
     async with server:
         await server.serve_forever()
 

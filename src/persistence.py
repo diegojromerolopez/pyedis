@@ -31,11 +31,17 @@ class AOF:
                 record = json.loads(line)
                 op = record["op"]
                 if op == "SET":
-                    await store.set(record["key"], record["value"].encode(), record.get("expire_at"))
+                    await store.set(
+                        record["key"], record["value"].encode(), record.get("expire_at")
+                    )
                 elif op == "DEL":
                     await store.delete([record["key"]])
                 elif op == "EXPIRE":
-                    await store.set(record["key"], await store.get(record["key"]), record["expire_at"])
+                    await store.set(
+                        record["key"],
+                        await store.get(record["key"]),
+                        record["expire_at"],
+                    )
                 elif op == "FLUSHALL":
                     await store.flush()
                 elif op in ("INCR", "DECR"):
