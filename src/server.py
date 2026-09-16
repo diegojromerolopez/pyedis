@@ -69,7 +69,12 @@ def encode_bulk(value: bytes | None) -> bytes:
 
 
 def encode_array(values: list[bytes]) -> bytes:
-    return b"*" + str(len(values)).encode() + b"\r\n" + b"".join(encode_bulk(value) for value in values)
+    return (
+        b"*"
+        + str(len(values)).encode()
+        + b"\r\n"
+        + b"".join(encode_bulk(value) for value in values)
+    )
 
 
 def parse_request(data: bytes) -> tuple[list[bytes], bytes]:
@@ -141,10 +146,14 @@ def execute(parts: list[bytes], store: Store, now: float) -> tuple[bytes, bool]:
     if command == b"EXISTS":
         if not args:
             return encode_error("wrong number of arguments for 'exists' command"), False
-        return encode_integer(sum(store.get(key, now) is not None for key in args)), False
+        return encode_integer(
+            sum(store.get(key, now) is not None for key in args)
+        ), False
     if command in (b"INCR", b"DECR"):
         if len(args) != 1:
-            return encode_error(f"wrong number of arguments for '{name}' command"), False
+            return encode_error(
+                f"wrong number of arguments for '{name}' command"
+            ), False
         current = store.get(args[0], now) or b"0"
         try:
             value = int(current) + (1 if command == b"INCR" else -1)
@@ -154,14 +163,18 @@ def execute(parts: list[bytes], store: Store, now: float) -> tuple[bytes, bool]:
         return encode_integer(value), False
     if command == b"FLUSHALL":
         if args:
-            return encode_error("wrong number of arguments for 'flushall' command"), False
+            return encode_error(
+                "wrong number of arguments for 'flushall' command"
+            ), False
         store.values.clear()
         store.expirations.clear()
         return encode_simple(b"OK"), False
     return encode_error(f"unknown command '{parts[0].decode(errors='replace')}'"), False
 
 
-async def client_session(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+async def client_session(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+) -> None:
     """Serve supported PING requests until EOF or a protocol error."""
     try:
         while True:
@@ -210,7 +223,9 @@ class Server:
 
     async def start(self) -> tuple[str, int]:
         if self._server is None:
-            self._server = await asyncio.start_server(client_session, self.host, self.port)
+            self._server = await asyncio.start_server(
+                client_session, self.host, self.port
+            )
             self.host, self.port = self.address
         return self.address
 
@@ -227,7 +242,9 @@ class Server:
         await self._server.serve_forever()
 
 
-async def run_server(host: str = "127.0.0.1", port: int | None = None, data_dir: str | None = None) -> None:
+async def run_server(
+    host: str = "127.0.0.1", port: int | None = None, data_dir: str | None = None
+) -> None:
     del data_dir
     try:
         selected_port = int(os.getenv("PORT", "6379")) if port is None else port
