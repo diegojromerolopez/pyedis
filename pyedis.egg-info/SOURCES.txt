@@ -14,3 +14,8 @@ src/persistence.py
 src/resp.py
 src/server.py
 src/store.py
+src/handlers/bitmaps/__init__.py
+src/handlers/bitmaps/bitcount.py
+src/handlers/bitmaps/bitpos.py
+src/handlers/bitmaps/getbit.py
+src/handlers/bitmaps/setbit.py
