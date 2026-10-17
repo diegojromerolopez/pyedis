@@ -46,20 +46,29 @@ class CommandDispatcher:
                 idx = 2
                 while idx < len(cmd_args):
                     opt = cmd_args[idx].upper()
-                    if opt == "EX" and idx + 1 < len(cmd_args):
-                        ex_sec = float(cmd_args[idx + 1])
-                        idx += 2
-                    elif opt == "PX" and idx + 1 < len(cmd_args):
-                        ex_sec = float(cmd_args[idx + 1]) / 1000.0
+                    if opt in ("EX", "PX"):
+                        if idx + 1 >= len(cmd_args):
+                            return encode_error("syntax error"), False
+                        try:
+                            duration = float(cmd_args[idx + 1])
+                        except ValueError:
+                            return encode_error("invalid expire time in 'set' command"), False
+                        if duration <= 0:
+                            return encode_error("invalid expire time in 'set' command"), False
+                        ex_sec = duration if opt == "EX" else duration / 1000.0
                         idx += 2
                     elif opt == "NX":
+                        if nx:
+                            return encode_error("syntax error"), False
                         nx = True
                         idx += 1
                     elif opt == "XX":
+                        if xx:
+                            return encode_error("syntax error"), False
                         xx = True
                         idx += 1
                     else:
-                        idx += 1
+                        return encode_error("syntax error"), False
 
                 expire_at = (self.store._clock() + ex_sec) if ex_sec else None
                 ok = self.store.set(key, val, expire_at=expire_at, nx=nx, xx=xx)
@@ -116,7 +125,11 @@ class CommandDispatcher:
             elif cmd == "EXPIRE":
                 if len(cmd_args) != 2:
                     return encode_error("wrong number of arguments for 'expire' command"), False
-                ok = self.store.expire(cmd_args[0], float(cmd_args[1]))
+                try:
+                    seconds = float(cmd_args[1])
+                except ValueError:
+                    return encode_error("value is not an integer or out of range"), False
+                ok = self.store.expire(cmd_args[0], seconds)
                 if ok and self.aof:
                     self.aof.log_mutation(
                         {
