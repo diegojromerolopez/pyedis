@@ -84,7 +84,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         await asyncio.wait_for(writer.wait_closed(), timeout=2.0)
 
         get = b"*2\r\n$3\r\nGET\r\n$6\r\nbefore\r\n"
-        self.assertEqual(await self._command(get, 13), b"$5\r\nvalue\r\n")
+        self.assertEqual(await self._command(get, len(b"$5\r\nvalue\r\n")), b"$5\r\nvalue\r\n")
         self.assertTrue(Path(self.tmpdir.name, "dump.aof").exists())
 
 
