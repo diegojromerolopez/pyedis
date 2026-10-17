@@ -1,1 +1,6 @@
-# Stub implementation for __init__.py
+"""Bitmap command implementations."""
+
+from .bitfield import bitfield
+from .bitop import bitop
+
+__all__ = ["bitfield", "bitop"]
