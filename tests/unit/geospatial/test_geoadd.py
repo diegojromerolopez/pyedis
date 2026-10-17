@@ -14,14 +14,18 @@ from tests.doubles import MutableClock
 
 
 class RecordingAOF:
+    """In-memory persistence double recording mutation and truncate calls."""
+
     def __init__(self) -> None:
         self.records: list[dict[str, object]] = []
+        self.truncated = False
 
     def log_mutation(self, record: dict[str, object]) -> None:
         self.records.append(record)
 
     def truncate(self) -> None:
-        pass
+        self.records.clear()
+        self.truncated = True
 
 
 class TestGeoHashCodec(unittest.TestCase):
@@ -32,6 +36,13 @@ class TestGeoHashCodec(unittest.TestCase):
         longitude, latitude = decode_geohash(value)
         self.assertLess(abs(longitude - 12.5), 180 / (1 << 25))
         self.assertLess(abs(latitude - 48.1), (85.05112878 * 2) / (1 << 25))
+
+    def test_different_coordinates_produce_different_hashes(self) -> None:
+        berlin = encode_geohash(13.4, 52.5)
+        paris = encode_geohash(2.35, 48.85)
+        self.assertNotEqual(berlin, paris)
+        self.assertGreaterEqual(berlin, 0)
+        self.assertLessEqual(berlin, MAX_HASH)
 
     def test_coordinate_validation_rejects_nonfinite_and_out_of_bounds_values(self) -> None:
         self.assertTrue(validate_coordinates(-180.0, -85.05112878))
@@ -47,6 +58,10 @@ class TestGeoHashCodec(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError):
                     decode_geohash(value)  # type: ignore[arg-type]
+
+    def test_encode_raises_for_invalid_coordinates(self) -> None:
+        with self.assertRaises(ValueError):
+            encode_geohash(200.0, 0.0)
 
 
 class TestGeoAdd(unittest.IsolatedAsyncioTestCase):
@@ -79,20 +94,24 @@ class TestGeoAdd(unittest.IsolatedAsyncioTestCase):
 
     async def test_nx_xx_and_ch_return_redis_style_counts(self) -> None:
         self.assertEqual(await self.dispatch("GEOADD", "places", "0", "0", "one"), b":1\r\n")
-        self.assertEqual(await self.dispatch("GEOADD", "places", "1", "1", "one"), b":1\r\n")
+        self.assertEqual(await self.dispatch("GEOADD", "places", "1", "1", "one"), b":0\r\n")
         self.assertEqual(await self.dispatch("GEOADD", "places", "2", "2", "one", "NX"), b":0\r\n")
         self.assertEqual(
             await self.dispatch("GEOADD", "places", "2", "2", "missing", "XX"), b":0\r\n"
         )
         self.assertEqual(await self.dispatch("GEOADD", "places", "2", "2", "one", "CH"), b":1\r\n")
         self.assertEqual(await self.dispatch("GEOADD", "places", "2", "2", "one", "CH"), b":0\r\n")
+        self.assertAlmostEqual(self.store._zsets["places"]["one"], float(encode_geohash(2, 2)))
 
     async def test_invalid_coordinates_and_syntax_do_not_mutate_or_log(self) -> None:
         for args, expected in (
             (("GEOADD", "x", "181", "0", "m"), b"-ERR invalid longitude,latitude pair\r\n"),
             (("GEOADD", "x", "0", "nan", "m"), b"-ERR invalid longitude,latitude pair\r\n"),
             (("GEOADD", "x", "NX", "XX", "0", "0", "m"), b"-ERR syntax error\r\n"),
-            (("GEOADD", "x", "0", "0"), b"-ERR wrong number of arguments for 'geoadd' command\r\n"),
+            (
+                ("GEOADD", "x", "0", "0"),
+                b"-ERR wrong number of arguments for 'geoadd' command\r\n",
+            ),
         ):
             with self.subTest(args=args):
                 self.assertEqual(await self.dispatch(*args), expected)
@@ -107,3 +126,15 @@ class TestGeoAdd(unittest.IsolatedAsyncioTestCase):
         before = len(self.aof.records)
         self.assertEqual(await self.dispatch("GEOADD", "x", "1", "1", "m", "NX"), b":0\r\n")
         self.assertEqual(len(self.aof.records), before)
+
+    async def test_unknown_command_still_rejected_after_geoadd_registration(self) -> None:
+        reply = await self.dispatch("NOTACOMMAND")
+        self.assertEqual(reply, b"-ERR unknown command 'NOTACOMMAND'\r\n")
+
+    async def test_wrongtype_error_when_key_holds_string(self) -> None:
+        await self.dispatch("SET", "strkey", "value")
+        reply = await self.dispatch("GEOADD", "strkey", "0", "0", "m")
+        self.assertEqual(
+            reply,
+            b"-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n",
+        )

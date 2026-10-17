@@ -1,1 +1,1 @@
-"""Geospatial unit tests."""
+"""Unit tests for geospatial command handlers."""
