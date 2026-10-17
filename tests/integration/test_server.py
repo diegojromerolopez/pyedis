@@ -13,17 +13,31 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         self.server_task = asyncio.create_task(
             run_server(host="127.0.0.1", port=self.port, data_dir=self.tmpdir.name, fsync=False)
         )
-        await asyncio.sleep(0.1)
+
+        deadline = asyncio.get_running_loop().time() + 2.0
+        while True:
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection("127.0.0.1", self.port), timeout=2.0
+                )
+                writer.close()
+                await writer.wait_closed()
+                break
+            except (ConnectionRefusedError, OSError):
+                if asyncio.get_running_loop().time() >= deadline:
+                    self.fail("server did not become ready within 2 seconds")
+                await asyncio.sleep(0.01)
 
     async def asyncTearDown(self) -> None:
         self.server_task.cancel()
         try:
-            await self.server_task
+            await asyncio.wait_for(self.server_task, timeout=2.0)
         except asyncio.CancelledError:
             pass
         self.tmpdir.cleanup()
 
     async def test_socket_ping(self) -> None:
+<<<<<<< HEAD
         reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
         writer.write(b"PING\r\n")
         await writer.drain()
@@ -31,6 +45,20 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response, b"+PONG\r\n")
         writer.close()
         await writer.wait_closed()
+=======
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection("127.0.0.1", self.port), timeout=2.0
+        )
+        try:
+            writer.write(b"PING\r\n")
+            await asyncio.wait_for(writer.drain(), timeout=2.0)
+            response = await asyncio.wait_for(reader.readexactly(len(b"+PONG\r\n")), timeout=2.0)
+            self.assertEqual(response, b"+PONG\r\n")
+        finally:
+            writer.close()
+            await asyncio.wait_for(writer.wait_closed(), timeout=2.0)
+
+>>>>>>> noctifab/task-US-001-TASK-001-worker
 
 
 if __name__ == "__main__":

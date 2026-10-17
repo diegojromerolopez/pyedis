@@ -45,8 +45,12 @@ async def run_server(
     dispatcher = CommandDispatcher(store, aof)
     server = await asyncio.start_server(lambda r, w: handle_client(r, w, dispatcher), host, port)
     print(f"pyedis: listening on {host}:{port}")
-    async with server:
+    try:
         await server.serve_forever()
+    finally:
+        server.close()
+        await server.wait_closed()
+
 
 
 def main() -> None:

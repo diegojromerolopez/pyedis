@@ -1,8 +1,11 @@
 <<<<<<< HEAD
 """Command dispatcher tests."""
+<<<<<<< HEAD
 =======
 """Command dispatcher characterization tests."""
 >>>>>>> noctifab/task-US-001-TASK-003-worker
+=======
+>>>>>>> noctifab/task-US-001-TASK-001-worker
 
 import unittest
 
@@ -16,10 +19,16 @@ class TestCommands(unittest.IsolatedAsyncioTestCase):
         self.store = Store()
         self.dispatcher = CommandDispatcher(self.store)
 
+<<<<<<< HEAD
     async def test_ping_is_case_insensitive_and_returns_simple_string(self) -> None:
         response, close = await self.dispatcher.dispatch([b"pInG"])
 
         self.assertEqual(response, b"+PONG\r\n")
+=======
+    async def test_ping(self) -> None:
+        resp, close = await self.dispatcher.dispatch([b"PING"])
+        self.assertEqual(resp, b"+PONG\r\n")
+>>>>>>> noctifab/task-US-001-TASK-001-worker
         self.assertFalse(close)
 
     async def test_ping_with_payload_returns_bulk_string(self) -> None:
@@ -105,6 +114,7 @@ class TestCommands(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response, b"+OK\r\n")
         self.assertTrue(close)
+
 
 
 

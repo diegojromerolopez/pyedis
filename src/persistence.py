@@ -1,11 +1,14 @@
 <<<<<<< HEAD
 """Append-Only File (AOF) durability engine with absolute timestamps."""
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 """Append-only file durability logging and replay."""
 >>>>>>> noctifab/task-US-001-TASK-004-worker
 =======
 >>>>>>> noctifab/task-US-001-TASK-003-worker
+=======
+>>>>>>> noctifab/task-US-001-TASK-001-worker
 
 import json
 import os
@@ -65,6 +68,7 @@ def _replay_record(record: Any, store: Store) -> bool:
     except (KeyError, TypeError, ValueError):
         return False
     return False
+
 
 
 

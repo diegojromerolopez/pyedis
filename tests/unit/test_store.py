@@ -6,9 +6,12 @@ import asyncio
 """In-memory store operations tests."""
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> noctifab/task-US-001-TASK-004-worker
 =======
 >>>>>>> noctifab/task-US-001-TASK-003-worker
+=======
+>>>>>>> noctifab/task-US-001-TASK-001-worker
 import unittest
 
 from src.store import Store
@@ -105,6 +108,7 @@ class TestStore(unittest.TestCase):
     def test_lock_is_exposed_as_asyncio_lock(self) -> None:
         self.assertIsInstance(self.store.lock, asyncio.Lock)
         self.assertIs(self.store.lock, self.store.lock)
+
 
 
 

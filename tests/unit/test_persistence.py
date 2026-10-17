@@ -18,8 +18,11 @@ from src.store import Store
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 >>>>>>> noctifab/task-US-001-TASK-003-worker
+=======
+>>>>>>> noctifab/task-US-001-TASK-001-worker
 class TestPersistence(unittest.TestCase):
     def test_aof_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -27,6 +30,7 @@ class TestPersistence(unittest.TestCase):
             logger = AOFLogger(aof_file, fsync=False)
             logger.log_mutation({"op": "SET", "key": "k1", "value": "v1", "expire_at": None})
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 =======
 class TestAOFLogger(unittest.TestCase):
@@ -122,6 +126,8 @@ class TestAOFReplay(unittest.TestCase):
 >>>>>>> noctifab/task-US-001-TASK-004-worker
 =======
 >>>>>>> noctifab/task-US-001-TASK-003-worker
+=======
+>>>>>>> noctifab/task-US-001-TASK-001-worker
             store = Store()
 
             self.assertEqual(replay_aof(path, store), 2)
@@ -171,6 +177,7 @@ class TestAOFReplay(unittest.TestCase):
             self.assertEqual(replayed, 1)
             self.assertEqual(store.get("complete"), "yes")
             self.assertIsNone(store.get("partial"))
+
 
 
 
