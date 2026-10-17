@@ -1,0 +1,31 @@
+Metadata-Version: 2.4
+Name: pyedis
+Version: 0.1.0
+Summary: A lightweight in-memory RESP key-value store with durability.
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Provides-Extra: dev
+Requires-Dist: redis>=5.0; extra == "dev"
+Requires-Dist: ruff>=0.8; extra == "dev"
+Requires-Dist: mypy>=1.13; extra == "dev"
+Requires-Dist: coverage>=7.6; extra == "dev"
+Dynamic: license-file
+
+# pyedis
+
+A high-performance, in-memory key-value store with a native Redis wire-protocol (RESP2/RESP3) API exposed over TCP written in modern Python.
+
+## Quick Start
+
+```bash
+make install
+make run
+```
+
+## Testing
+
+```bash
+make test
+make e2e
+```
