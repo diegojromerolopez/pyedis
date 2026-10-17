@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 """RESP serialization tests."""
 
 import unittest
@@ -7,7 +6,6 @@ from src.resp import (
     encode_bulk_string,
     encode_error,
     encode_integer,
-=======
 """Characterization tests for RESP serialization and stream decoding."""
 
 from pathlib import Path
@@ -20,7 +18,6 @@ from src.resp import (
     encode_error,
     encode_integer,
     encode_resp,
->>>>>>> noctifab/task-US-001-TASK-001-worker
     encode_simple_string,
 )
 

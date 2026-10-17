@@ -1,34 +1,25 @@
-<<<<<<< HEAD
 """RESP wire protocol encoder and streaming decoder."""
-=======
 """RESP wire-protocol encoders and a streaming command decoder."""
->>>>>>> noctifab/task-US-001-TASK-001-worker
 
 from typing import Any
 
 
-<<<<<<< HEAD
 def encode_simple_string(s: str) -> bytes:
     return f"+{s}\r\n".encode("utf-8")
-=======
 def encode_simple_string(value: str) -> bytes:
     return f"+{value}\r\n".encode("utf-8")
 
->>>>>>> noctifab/task-US-001-TASK-001-worker
 
 
 def encode_error(msg: str, err_type: str = "ERR") -> bytes:
     return f"-{err_type} {msg}\r\n".encode("utf-8")
 
 
-<<<<<<< HEAD
 def encode_integer(n: int) -> bytes:
     return f":{n}\r\n".encode("utf-8")
-=======
 def encode_integer(value: int) -> bytes:
     return f":{value}\r\n".encode("ascii")
 
->>>>>>> noctifab/task-US-001-TASK-001-worker
 
 
 def encode_bulk_string(data: bytes | str | None) -> bytes:
@@ -64,8 +55,6 @@ def encode_resp(value: Any) -> bytes:
     return encode_error("unsupported payload type")
 
 
-<<<<<<< HEAD
-=======
 def _line_end(buffer: bytearray, start: int) -> int | None:
     position = buffer.find(b"\r\n", start)
     return position if position >= 0 else None
@@ -112,11 +101,9 @@ def _parse_command(buffer: bytearray, start: int) -> tuple[list[bytes], int] | N
     return command, cursor
 
 
->>>>>>> noctifab/task-US-001-TASK-001-worker
 def decode_resp_stream(buffer: bytearray) -> tuple[list[list[bytes]], bytearray]:
     """Decode complete commands, retaining any incomplete trailing bytes."""
     commands: list[list[bytes]] = []
-<<<<<<< HEAD
     idx = 0
     buf_len = len(buffer)
 
@@ -166,7 +153,6 @@ def decode_resp_stream(buffer: bytearray) -> tuple[list[list[bytes]], bytearray]
             if line:
                 parts = line.split()
                 commands.append(parts)
-=======
     cursor = 0
     while cursor < len(buffer):
         if buffer[cursor : cursor + 1] == b"*":
@@ -180,7 +166,6 @@ def decode_resp_stream(buffer: bytearray) -> tuple[list[list[bytes]], bytearray]
                 cursor = next_cursor
                 continue
             break
->>>>>>> noctifab/task-US-001-TASK-001-worker
 
         end = _line_end(buffer, cursor)
         if end is None:
