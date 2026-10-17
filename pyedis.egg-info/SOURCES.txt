@@ -14,3 +14,8 @@ src/persistence.py
 src/resp.py
 src/server.py
 src/store.py
+src/handlers/hll/__init__.py
+src/handlers/hll/hll_codec.py
+src/handlers/hll/pfadd.py
+src/handlers/hll/pfcount.py
+src/handlers/hll/pfmerge.py

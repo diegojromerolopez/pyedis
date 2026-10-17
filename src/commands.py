@@ -9,6 +9,7 @@ from src.resp import (
     encode_simple_string,
 )
 from src.store import Store
+from src.handlers.hll import pfadd, pfcount, pfmerge
 
 
 class CommandDispatcher:
@@ -149,6 +150,57 @@ class CommandDispatcher:
                 if len(cmd_args) != 1:
                     return encode_error("wrong number of arguments for 'keys' command"), False
                 return encode_array(self.store.keys(cmd_args[0])), False
+
+            elif cmd == "PFADD":
+                if len(cmd_args) < 2:
+                    return encode_error("wrong number of arguments for 'pfadd' command"), False
+                if self.store.exists(cmd_args[1]) and cmd_args[1] in self.store._strings:
+                    try:
+                        changed = pfadd(self.store, cmd_args[1], args[2:])
+                    except ValueError:
+                        return encode_error(
+                            "WRONGTYPE Operation against a key holding the wrong kind of value"
+                        ), False
+                elif self.store.exists(cmd_args[1]):
+                    return encode_error(
+                        "WRONGTYPE Operation against a key holding the wrong kind of value"
+                    ), False
+                else:
+                    changed = pfadd(self.store, cmd_args[1], args[2:])
+                if self.aof:
+                    self.aof.log_mutation(
+                        {"op": "PFADD", "key": cmd_args[1], "values": [v.hex() for v in args[2:]]}
+                    )
+                return encode_integer(changed), True
+
+            elif cmd == "PFCOUNT":
+                if len(cmd_args) < 1:
+                    return encode_error("wrong number of arguments for 'pfcount' command"), False
+                for key in cmd_args:
+                    if self.store.exists(key) and key not in self.store._strings:
+                        return encode_error(
+                            "WRONGTYPE Operation against a key holding the wrong kind of value"
+                        ), False
+                return encode_integer(pfcount(self.store, cmd_args)), False
+
+            elif cmd == "PFMERGE":
+                if len(cmd_args) < 1:
+                    return encode_error("wrong number of arguments for 'pfmerge' command"), False
+                for key in cmd_args[1:]:
+                    if self.store.exists(key) and key not in self.store._strings:
+                        return encode_error(
+                            "WRONGTYPE Operation against a key holding the wrong kind of value"
+                        ), False
+                if self.store.exists(cmd_args[0]) and cmd_args[0] not in self.store._strings:
+                    return encode_error(
+                        "WRONGTYPE Operation against a key holding the wrong kind of value"
+                    ), False
+                pfmerge(self.store, cmd_args[0], cmd_args[1:])
+                if self.aof:
+                    self.aof.log_mutation(
+                        {"op": "PFMERGE", "destination": cmd_args[0], "sources": cmd_args[1:]}
+                    )
+                return encode_simple_string("OK"), True
 
             elif cmd == "FLUSHALL":
                 self.store.flushall()

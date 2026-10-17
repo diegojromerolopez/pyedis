@@ -59,6 +59,14 @@ def replay_aof(filepath: str | Path, store: Store) -> int:
             elif op == "EXPIRE":
                 if rec.get("expire_at") is not None:
                     store._expires[rec["key"]] = rec["expire_at"]
+            elif op == "PFADD":
+                from src.handlers.hll import pfadd
+
+                pfadd(store, rec["key"], [bytes.fromhex(value) for value in rec["values"]])
+            elif op == "PFMERGE":
+                from src.handlers.hll import pfmerge
+
+                pfmerge(store, rec["destination"], rec["sources"])
             elif op == "FLUSHALL":
                 store.flushall()
             replayed += 1
