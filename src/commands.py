@@ -9,17 +9,22 @@ from src.resp import (
     encode_simple_string,
 )
 from src.store import Store
-<<<<<<< HEAD
 from src.handlers.hll import pfadd, pfcount, pfmerge
-=======
 from src.handlers.geospatial.geoadd import execute_geoadd
->>>>>>> noctifab/task-US-008-TASK-001-worker
+from src.handlers.connection import (
+    ConnectionState,
+    execute_client,
+    execute_hello,
+    execute_info,
+    execute_select,
+)
 
 
 class CommandDispatcher:
     def __init__(self, store: Store, aof: AOFLogger | None = None) -> None:
         self.store: Store = store
         self.aof: AOFLogger | None = aof
+        self.connection = ConnectionState()
 
     async def dispatch(self, args: list[bytes]) -> tuple[bytes, bool]:
         if not args:
@@ -218,7 +223,19 @@ class CommandDispatcher:
                     self.aof.log_mutation({"op": "GEOADD", "args": cmd_args})
                 return result.reply, False
 
-            elif cmd in ("COMMAND", "CLIENT", "INFO", "HELLO"):
-                return encode_simple_string("OK"), False
+            elif cmd == "CLIENT":
+                return execute_client(self.connection, cmd_args), False
+
+            elif cmd == "HELLO":
+                return execute_hello(self.connection, cmd_args), False
+
+            elif cmd == "SELECT":
+                return execute_select(self.connection, cmd_args), False
+
+            elif cmd == "INFO":
+                return execute_info(cmd_args), False
+
+            elif cmd == "COMMAND":
+                return encode_array([]), False
 
             return encode_error(f"unknown command '{cmd}'"), False
