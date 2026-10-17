@@ -16,6 +16,7 @@ src/server.py
 src/store.py
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 src/handlers/scripting/__init__.py
 src/handlers/scripting/eval_cmd.py
 src/handlers/scripting/evalsha_cmd.py
@@ -35,3 +36,8 @@ src/handlers/bitmaps/bitpos.py
 src/handlers/bitmaps/getbit.py
 src/handlers/bitmaps/setbit.py
 >>>>>>> noctifab/task-US-008-TASK-004-worker
+=======
+src/handlers/geospatial/__init__.py
+src/handlers/geospatial/geoadd.py
+src/handlers/geospatial/geohash_codec.py
+>>>>>>> noctifab/task-US-008-TASK-001-worker

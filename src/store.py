@@ -146,3 +146,20 @@ class Store:
         self._sets.clear()
         self._zsets.clear()
         self._expires.clear()
+
+    def geoadd(
+        self, key: str, score: float, member: str, nx: bool = False, xx: bool = False
+    ) -> tuple[bool, bool]:
+        """Add or update a sorted-set member, returning (added, changed)."""
+        self._is_expired(key)
+        if key in self._strings or key in self._lists or key in self._hashes or key in self._sets:
+            raise ValueError("WRONGTYPE Operation against a key holding the wrong kind of value")
+        zset = self._zsets.setdefault(key, {})
+        exists = member in zset
+        if nx and exists:
+            return False, False
+        if xx and not exists:
+            return False, False
+        old_score = zset.get(member)
+        zset[member] = score
+        return (not exists), (not exists or old_score != score)

@@ -9,7 +9,11 @@ from src.resp import (
     encode_simple_string,
 )
 from src.store import Store
+<<<<<<< HEAD
 from src.handlers.hll import pfadd, pfcount, pfmerge
+=======
+from src.handlers.geospatial.geoadd import execute_geoadd
+>>>>>>> noctifab/task-US-008-TASK-001-worker
 
 
 class CommandDispatcher:
@@ -207,6 +211,12 @@ class CommandDispatcher:
                 if self.aof:
                     self.aof.truncate()
                 return encode_simple_string("OK"), False
+
+            elif cmd == "GEOADD":
+                result = execute_geoadd(self.store, cmd_args)
+                if result.changed and self.aof:
+                    self.aof.log_mutation({"op": "GEOADD", "args": cmd_args})
+                return result.reply, False
 
             elif cmd in ("COMMAND", "CLIENT", "INFO", "HELLO"):
                 return encode_simple_string("OK"), False

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 from src.store import Store
+from src.handlers.geospatial.geoadd import execute_geoadd
 
 
 class AOFLogger:
@@ -69,5 +70,9 @@ def replay_aof(filepath: str | Path, store: Store) -> int:
                 pfmerge(store, rec["destination"], rec["sources"])
             elif op == "FLUSHALL":
                 store.flushall()
+            elif op == "GEOADD":
+                from src.handlers.geospatial.geoadd import execute_geoadd
+
+                execute_geoadd(store, rec["args"])
             replayed += 1
     return replayed
