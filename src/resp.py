@@ -1,44 +1,38 @@
-"""RESP wire protocol encoder and streaming decoder."""
+"""RESP wire-protocol encoders and a streaming command decoder."""
 
 from typing import Any
 
 
-def encode_simple_string(s: str) -> bytes:
-    return f"+{s}\r\n".encode("utf-8")
+def encode_simple_string(value: str) -> bytes:
+    return f"+{value}\r\n".encode("utf-8")
 
 
 def encode_error(msg: str, err_type: str = "ERR") -> bytes:
     return f"-{err_type} {msg}\r\n".encode("utf-8")
 
 
-def encode_integer(n: int) -> bytes:
-    return f":{n}\r\n".encode("utf-8")
+def encode_integer(value: int) -> bytes:
+    return f":{value}\r\n".encode("ascii")
 
 
 def encode_bulk_string(data: bytes | str | None) -> bytes:
     if data is None:
         return b"$-1\r\n"
-    if isinstance(data, str):
-        b_data = data.encode("utf-8")
-    else:
-        b_data = data
-    return f"${len(b_data)}\r\n".encode("utf-8") + b_data + b"\r\n"
+    payload = data.encode("utf-8") if isinstance(data, str) else data
+    return f"${len(payload)}\r\n".encode("ascii") + payload + b"\r\n"
 
 
 def encode_array(items: list[Any] | None) -> bytes:
     if items is None:
         return b"*-1\r\n"
-    res = f"*{len(items)}\r\n".encode("utf-8")
-    for item in items:
-        res += encode_resp(item)
-    return res
+    return f"*{len(items)}\r\n".encode("ascii") + b"".join(encode_resp(item) for item in items)
 
 
 def encode_resp(value: Any) -> bytes:
     if value is None:
         return encode_bulk_string(None)
     if isinstance(value, bool):
-        return encode_integer(1 if value else 0)
+        return encode_integer(int(value))
     if isinstance(value, int):
         return encode_integer(value)
     if isinstance(value, float):
@@ -52,76 +46,75 @@ def encode_resp(value: Any) -> bytes:
     return encode_error("unsupported payload type")
 
 
-def decode_resp_stream(buffer: bytearray) -> tuple[list[list[bytes]], bytearray]:
-    """Decode complete commands from *buffer*, retaining an incomplete tail.
+def _line_end(buffer: bytearray, start: int) -> int | None:
+    position = buffer.find(b"\r\n", start)
+    return position if position >= 0 else None
 
-    Redis clients commonly split one frame across several socket reads and may
-    send several frames in one read.  The cursor only advances after a whole
-    command has been validated, so an incomplete frame is returned unchanged.
-    Inline commands are retained for compatibility with the original server.
-    """
-    commands: list[list[bytes]] = []
-    idx = 0
-    length = len(buffer)
 
-    while idx < length:
-        if buffer[idx : idx + 1] != b"*":
-            line_end = buffer.find(b"\r\n", idx)
-            if line_end < 0:
-                break
-            line = bytes(buffer[idx:line_end]).strip()
-            idx = line_end + 2
-            if line:
-                commands.append(line.split())
-            continue
+def _parse_command(buffer: bytearray, start: int) -> tuple[list[bytes], int] | None:
+    """Parse one array-of-bulk-strings command, or return None if incomplete."""
+    end = _line_end(buffer, start)
+    if end is None:
+        return None
+    try:
+        count = int(buffer[start + 1 : end])
+    except ValueError:
+        return ([], end + 2)
+    if count < 0:
+        return ([], end + 2)
 
-        header_end = buffer.find(b"\r\n", idx)
-        if header_end < 0:
-            break
+    cursor = end + 2
+    command: list[bytes] = []
+    for _ in range(count):
+        if cursor >= len(buffer):
+            return None
+        if buffer[cursor : cursor + 1] != b"$":
+            return ([], cursor)
+        header_end = _line_end(buffer, cursor)
+        if header_end is None:
+            return None
         try:
-            element_count = int(buffer[idx + 1 : header_end])
+            size = int(buffer[cursor + 1 : header_end])
         except ValueError:
-            idx = header_end + 2
+            return ([], header_end + 2)
+        if size < 0:
+            command.append(b"")
+            cursor = header_end + 2
             continue
-        if element_count < 0:
-            idx = header_end + 2
-            continue
+        payload_start = header_end + 2
+        payload_end = payload_start + size
+        if payload_end + 2 > len(buffer):
+            return None
+        if buffer[payload_end : payload_end + 2] != b"\r\n":
+            return ([], payload_end + 2)
+        command.append(bytes(buffer[payload_start:payload_end]))
+        cursor = payload_end + 2
+    return command, cursor
 
-        cursor = header_end + 2
-        command: list[bytes] = []
-        complete = True
-        for _ in range(element_count):
-            if cursor >= length or buffer[cursor : cursor + 1] != b"$":
-                complete = False
-                break
-            element_header_end = buffer.find(b"\r\n", cursor)
-            if element_header_end < 0:
-                complete = False
-                break
-            try:
-                element_length = int(buffer[cursor + 1 : element_header_end])
-            except ValueError:
-                complete = False
-                break
-            if element_length < 0:
-                complete = False
-                break
-            element_start = element_header_end + 2
-            element_end = element_start + element_length
-            if element_end + 2 > length:
-                complete = False
-                break
-            if buffer[element_end : element_end + 2] != b"\r\n":
-                complete = False
-                break
-            command.append(bytes(buffer[element_start:element_end]))
-            cursor = element_end + 2
 
-        if not complete:
+def decode_resp_stream(buffer: bytearray) -> tuple[list[list[bytes]], bytearray]:
+    """Decode complete commands, retaining any incomplete trailing bytes."""
+    commands: list[list[bytes]] = []
+    cursor = 0
+    while cursor < len(buffer):
+        if buffer[cursor : cursor + 1] == b"*":
+            parsed = _parse_command(buffer, cursor)
+            if parsed is None:
+                break
+            command, next_cursor = parsed
+            if command or next_cursor > cursor:
+                if command:
+                    commands.append(command)
+                cursor = next_cursor
+                continue
             break
-        commands.append(command)
-        idx = cursor
 
-    # Consume parsed frames while retaining only the incomplete suffix.  Return
-    # a fresh bytearray so callers can safely extend it on the next read.
-    return commands, bytearray(buffer[idx:])
+        end = _line_end(buffer, cursor)
+        if end is None:
+            break
+        line = bytes(buffer[cursor:end]).strip()
+        cursor = end + 2
+        if line:
+            commands.append(line.split())
+
+    return commands, bytearray(buffer[cursor:])
