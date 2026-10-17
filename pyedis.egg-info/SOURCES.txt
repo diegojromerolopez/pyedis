@@ -37,3 +37,6 @@ src/handlers/scripting/eval_cmd.py
 src/handlers/scripting/evalsha_cmd.py
 src/handlers/scripting/lua_evaluator.py
 src/handlers/scripting/script_cache.py
+src/lists/__init__.py
+src/lists/model.py
+src/lists/store.py
