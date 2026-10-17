@@ -14,3 +14,6 @@ src/persistence.py
 src/resp.py
 src/server.py
 src/store.py
+src/handlers/geospatial/__init__.py
+src/handlers/geospatial/geoadd.py
+src/handlers/geospatial/geohash_codec.py
