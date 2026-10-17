@@ -1,6 +1,11 @@
+<<<<<<< HEAD
 """Characterization tests for the in-memory store."""
 
 import asyncio
+=======
+"""In-memory store operations tests."""
+
+>>>>>>> noctifab/task-US-001-TASK-004-worker
 import unittest
 
 from src.store import Store
@@ -97,6 +102,7 @@ class TestStore(unittest.TestCase):
     def test_lock_is_exposed_as_asyncio_lock(self) -> None:
         self.assertIsInstance(self.store.lock, asyncio.Lock)
         self.assertIs(self.store.lock, self.store.lock)
+
 
 
 if __name__ == "__main__":
