@@ -1,7 +1,6 @@
 """Characterization tests for the append-only persistence engine."""
 
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path

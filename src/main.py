@@ -5,7 +5,7 @@ import os
 import sys
 from src.commands import CommandDispatcher
 from src.persistence import AOFLogger, replay_aof
-from src.resp import decode_resp_stream, encode_error
+from src.resp import decode_resp_stream
 from src.store import Store
 
 

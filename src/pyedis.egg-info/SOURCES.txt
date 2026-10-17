@@ -1,0 +1,14 @@
+LICENSE
+README.md
+pyproject.toml
+src/__init__.py
+src/commands.py
+src/main.py
+src/persistence.py
+src/resp.py
+src/store.py
+src/pyedis.egg-info/PKG-INFO
+src/pyedis.egg-info/SOURCES.txt
+src/pyedis.egg-info/dependency_links.txt
+src/pyedis.egg-info/requires.txt
+src/pyedis.egg-info/top_level.txt

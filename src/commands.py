@@ -21,7 +21,7 @@ class CommandDispatcher:
         async with self.store.lock:
             if cmd == "PING":
                 if not str_args:
-                    return encode_simple_string("PONG"), False
+                    return encode_simple_string("OK"), False
                 return encode_bulk_string(str_args[0]), False
             elif cmd == "ECHO":
                 if len(str_args) != 1:
