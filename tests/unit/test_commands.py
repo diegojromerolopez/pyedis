@@ -12,7 +12,7 @@ class TestCommands(unittest.IsolatedAsyncioTestCase):
 
     async def test_ping(self) -> None:
         resp, close = await self.dispatcher.dispatch([b"PING"])
-        self.assertEqual(resp, b"+OK\r\n")
+        self.assertEqual(resp, b"+PONG\r\n")
         self.assertFalse(close)
 
     async def test_set_get(self) -> None:

@@ -1,4 +1,5 @@
 """Characterization tests for RESP serialization and stream decoding."""
+
 from pathlib import Path
 import unittest
 
@@ -17,7 +18,7 @@ class TestRESPEncoding(unittest.TestCase):
     def test_simple_strings_include_resp_delimiter(self) -> None:
         self.assertEqual(encode_simple_string("OK"), b"+OK\r\n")
         self.assertEqual(encode_simple_string("PONG"), b"+PONG\r\n")
-        self.assertEqual(encode_simple_string("hé"), " +hé\r\n".strip().encode("utf-8"))
+        self.assertEqual(encode_simple_string("hé"), "+hé\r\n".encode("utf-8"))
 
     def test_errors_use_default_and_custom_error_types(self) -> None:
         self.assertEqual(encode_error("syntax error"), b"-ERR syntax error\r\n")
@@ -30,7 +31,7 @@ class TestRESPEncoding(unittest.TestCase):
 
     def test_bulk_strings_encode_bytes_by_byte_length(self) -> None:
         self.assertEqual(encode_bulk_string("hello"), b"$5\r\nhello\r\n")
-        self.assertEqual(encode_bulk_string("hé"), b"$3\r\nhé\r\n")
+        self.assertEqual(encode_bulk_string("hé"), "$3\r\nhé\r\n".encode("utf-8"))
         self.assertEqual(encode_bulk_string(b"\x00\xff"), b"$2\r\n\x00\xff\r\n")
         self.assertEqual(encode_bulk_string(None), b"$-1\r\n")
 
@@ -64,12 +65,10 @@ class TestRESPStreamDecoding(unittest.TestCase):
         frame = b"*2\r\n$3\r\nGET\r\n$3\r\nkey\r\n"
         pending = bytearray()
         commands: list[list[bytes]] = []
-
         for byte in frame:
             pending.extend(bytes((byte,)))
             decoded, pending = decode_resp_stream(pending)
             commands.extend(decoded)
-
         self.assertEqual(commands, [[b"GET", b"key"]])
         self.assertEqual(pending, bytearray())
 
@@ -78,7 +77,6 @@ class TestRESPStreamDecoding(unittest.TestCase):
         commands, remainder = decode_resp_stream(first)
         self.assertEqual(commands, [])
         self.assertEqual(remainder, first)
-
         remainder.extend(b"y\r\n")
         commands, remainder = decode_resp_stream(remainder)
         self.assertEqual(commands, [[b"GET", b"key"]])
@@ -86,14 +84,10 @@ class TestRESPStreamDecoding(unittest.TestCase):
 
     def test_pipelined_array_commands_are_decoded_in_order(self) -> None:
         pipeline = (
-            b"*2\r\n$4\r\nPING\r\n$4\r\nname\r\n"
-            b"*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n"
+            b"*2\r\n$4\r\nPING\r\n$4\r\nname\r\n*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n"
         )
         commands, remainder = decode_resp_stream(bytearray(pipeline))
-        self.assertEqual(
-            commands,
-            [[b"PING", b"name"], [b"SET", b"key", b"value"]],
-        )
+        self.assertEqual(commands, [[b"PING", b"name"], [b"SET", b"key", b"value"]])
         self.assertEqual(remainder, bytearray())
 
     def test_complete_command_and_partial_pipelined_command_preserve_tail(self) -> None:
@@ -101,7 +95,6 @@ class TestRESPStreamDecoding(unittest.TestCase):
         commands, remainder = decode_resp_stream(data)
         self.assertEqual(commands, [[b"PING"]])
         self.assertEqual(remainder, bytearray(b"*2\r\n$3\r\nGET\r\n$3\r\nke"))
-
         remainder.extend(b"y\r\n")
         commands, remainder = decode_resp_stream(remainder)
         self.assertEqual(commands, [[b"GET", b"key"]])
