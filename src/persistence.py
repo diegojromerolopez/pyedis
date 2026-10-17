@@ -1,9 +1,11 @@
 """Append-Only File (AOF) durability engine with absolute timestamps."""
+
 import json
 import os
 from pathlib import Path
 from typing import Any
 from src.store import Store
+
 
 class AOFLogger:
     def __init__(self, filepath: str | Path, fsync: bool = True) -> None:
@@ -24,6 +26,7 @@ class AOFLogger:
             with open(self.filepath, "w", encoding="utf-8") as f:
                 f.truncate(0)
 
+
 def replay_aof(filepath: str | Path, store: Store) -> int:
     path = Path(filepath)
     if not path.exists():
@@ -36,20 +39,26 @@ def replay_aof(filepath: str | Path, store: Store) -> int:
                 continue
             try:
                 rec = json.loads(line)
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                print("pyedis: ignoring corrupt trailing AOF line")
+                continue
+            if not isinstance(rec, dict):
                 print("pyedis: ignoring corrupt trailing AOF line")
                 continue
             op = rec.get("op")
-            if op == "SET":
-                store.set(rec["key"], rec["value"], expire_at=rec.get("expire_at"))
-                replayed += 1
-            elif op == "DEL":
-                store.delete(rec["key"])
-                replayed += 1
-            elif op == "EXPIRE":
-                store._expires[rec["key"]] = rec["expire_at"]
-                replayed += 1
-            elif op == "FLUSHALL":
-                store.flushall()
-                replayed += 1
+            try:
+                if op == "SET":
+                    store.set(rec["key"], rec["value"], expire_at=rec.get("expire_at"))
+                    replayed += 1
+                elif op == "DEL":
+                    store.delete(rec["key"])
+                    replayed += 1
+                elif op == "EXPIRE":
+                    store._expires[rec["key"]] = rec["expire_at"]
+                    replayed += 1
+                elif op == "FLUSHALL":
+                    store.flushall()
+                    replayed += 1
+            except (KeyError, TypeError, ValueError):
+                print("pyedis: ignoring corrupt trailing AOF line")
     return replayed

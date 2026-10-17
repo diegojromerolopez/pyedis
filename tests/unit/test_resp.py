@@ -1,6 +1,15 @@
 """RESP serialization tests."""
+
 import unittest
-from src.resp import decode_resp_stream, encode_array, encode_bulk_string, encode_error, encode_integer, encode_simple_string
+from src.resp import (
+    decode_resp_stream,
+    encode_array,
+    encode_bulk_string,
+    encode_error,
+    encode_integer,
+    encode_simple_string,
+)
+
 
 class TestRESPEncoding(unittest.TestCase):
     def test_simple_string(self) -> None:
@@ -22,6 +31,7 @@ class TestRESPEncoding(unittest.TestCase):
         self.assertEqual(len(cmds), 1)
         self.assertEqual(cmds[0], [b"GET", b"key"])
         self.assertEqual(rem, b"")
+
 
 if __name__ == "__main__":
     unittest.main()
