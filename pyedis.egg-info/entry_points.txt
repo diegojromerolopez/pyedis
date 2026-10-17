@@ -1,0 +1,2 @@
+[console_scripts]
+pyedis = src.main:main

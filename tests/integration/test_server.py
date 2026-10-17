@@ -1,8 +1,10 @@
 """Integration tests with live TCP socket."""
+
 import asyncio
 import tempfile
 import unittest
 from src.main import run_server
+
 
 class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
@@ -25,6 +27,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data, b"+PONG\r\n")
         writer.close()
         await writer.wait_closed()
+
 
 if __name__ == "__main__":
     unittest.main()

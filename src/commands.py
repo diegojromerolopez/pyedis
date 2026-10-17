@@ -1,6 +1,15 @@
-"""Command dispatcher and Redis parity handlers."""from src.persistence import AOFLogger
-from src.resp import encode_array, encode_bulk_string, encode_error, encode_integer, encode_simple_string
+"""Command dispatcher and Redis parity handlers."""
+
+from src.persistence import AOFLogger
+from src.resp import (
+    encode_array,
+    encode_bulk_string,
+    encode_error,
+    encode_integer,
+    encode_simple_string,
+)
 from src.store import Store
+
 
 class CommandDispatcher:
     def __init__(self, store: Store, aof: AOFLogger | None = None) -> None:
@@ -56,7 +65,9 @@ class CommandDispatcher:
                 ok = self.store.set(key, val, expire_at=expire_at, nx=nx, xx=xx)
                 if ok:
                     if self.aof:
-                        self.aof.log_mutation({"op": "SET", "key": key, "value": val, "expire_at": expire_at})
+                        self.aof.log_mutation(
+                            {"op": "SET", "key": key, "value": val, "expire_at": expire_at}
+                        )
                     return encode_simple_string("OK"), False
                 return encode_bulk_string(None), False
 
@@ -107,7 +118,13 @@ class CommandDispatcher:
                     return encode_error("wrong number of arguments for 'expire' command"), False
                 ok = self.store.expire(cmd_args[0], float(cmd_args[1]))
                 if ok and self.aof:
-                    self.aof.log_mutation({"op": "EXPIRE", "key": cmd_args[0], "expire_at": self.store._expires.get(cmd_args[0])})
+                    self.aof.log_mutation(
+                        {
+                            "op": "EXPIRE",
+                            "key": cmd_args[0],
+                            "expire_at": self.store._expires.get(cmd_args[0]),
+                        }
+                    )
                 return encode_integer(1 if ok else 0), False
 
             elif cmd == "TTL":

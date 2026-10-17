@@ -1,8 +1,11 @@
-"""Append-Only File (AOF) durability engine."""import json
+"""Append-Only File (AOF) durability engine."""
+
+import json
 import os
 from pathlib import Path
 from typing import Any
 from src.store import Store
+
 
 class AOFLogger:
     def __init__(self, filepath: str | Path, fsync: bool = True) -> None:
@@ -27,6 +30,7 @@ class AOFLogger:
 
     def close(self) -> None:
         self._file.close()
+
 
 def replay_aof(filepath: str | Path, store: Store) -> int:
     p = Path(filepath)

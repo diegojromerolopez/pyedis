@@ -1,14 +1,19 @@
 """RESP wire protocol encoder and streaming decoder."""
+
 from typing import Any
+
 
 def encode_simple_string(s: str) -> bytes:
     return f"+{s}\r\n".encode("utf-8")
 
+
 def encode_error(msg: str, err_type: str = "ERR") -> bytes:
     return f"-{err_type} {msg}\r\n".encode("utf-8")
 
+
 def encode_integer(n: int) -> bytes:
     return f":{n}\r\n".encode("utf-8")
+
 
 def encode_bulk_string(data: bytes | str | None) -> bytes:
     if data is None:
@@ -19,6 +24,7 @@ def encode_bulk_string(data: bytes | str | None) -> bytes:
         b = data
     return f"${len(b)}\r\n".encode("utf-8") + b + b"\r\n"
 
+
 def encode_array(items: list[Any] | None) -> bytes:
     if items is None:
         return b"*-1\r\n"
@@ -26,6 +32,7 @@ def encode_array(items: list[Any] | None) -> bytes:
     for item in items:
         res.append(encode_resp(item))
     return b"".join(res)
+
 
 def encode_resp(value: Any) -> bytes:
     if value is None:
@@ -41,6 +48,7 @@ def encode_resp(value: Any) -> bytes:
     if isinstance(value, Exception):
         return encode_error(str(value))
     return encode_simple_string(str(value))
+
 
 def decode_resp_stream(buffer: bytearray) -> tuple[list[list[bytes]], bytearray]:
     commands: list[list[bytes]] = []
@@ -60,7 +68,7 @@ def decode_resp_stream(buffer: bytearray) -> tuple[list[list[bytes]], bytearray]
             if num_elements < 0:
                 idx = crlf + 2
                 continue
-            
+
             cur = crlf + 2
             parsed_args: list[bytes] = []
             valid = True
@@ -84,7 +92,7 @@ def decode_resp_stream(buffer: bytearray) -> tuple[list[list[bytes]], bytearray]
                 arg_data = bytes(buffer[cur : cur + arg_len])
                 parsed_args.append(arg_data)
                 cur += arg_len + 2
-            
+
             if not valid:
                 break
             commands.append(parsed_args)
