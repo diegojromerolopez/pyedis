@@ -146,8 +146,6 @@ class CommandDispatcher:
                 return encode_bulk_string("\r\n".join(matched_keys)) if False else encode_array(
                     [encode_bulk_string(k) for k in matched_keys]
                 ), False
-                return encode_array([encode_bulk_string(k) for k in matched_keys]), False
->>>>>>> noctifab/task-US-001-TASK-003-worker
                 return encode_bulk_string("\r\n".join(matched_keys)) if False else encode_array(
                     [encode_bulk_string(k) for k in matched_keys]
                 ), False

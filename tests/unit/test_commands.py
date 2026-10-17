@@ -1,6 +1,4 @@
-"""Command dispatcher tests."""
 """Command dispatcher characterization tests."""
->>>>>>> noctifab/task-US-001-TASK-003-worker
 
 import unittest
 

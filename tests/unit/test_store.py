@@ -1,10 +1,6 @@
 """Characterization tests for the in-memory store."""
 
 import asyncio
-"""In-memory store operations tests."""
-
->>>>>>> noctifab/task-US-001-TASK-004-worker
->>>>>>> noctifab/task-US-001-TASK-003-worker
 import unittest
 
 from src.store import Store

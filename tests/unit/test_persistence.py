@@ -1,10 +1,7 @@
 """AOF Persistence tests."""
 
 import os
-"""Characterization tests for the append-only persistence engine."""
-
 import json
->>>>>>> noctifab/task-US-001-TASK-004-worker
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,7 +11,6 @@ from src.persistence import AOFLogger, replay_aof
 from src.store import Store
 
 
->>>>>>> noctifab/task-US-001-TASK-003-worker
 class TestPersistence(unittest.TestCase):
     def test_aof_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -112,8 +108,6 @@ class TestAOFReplay(unittest.TestCase):
                 + "\n",
                 encoding="utf-8",
             )
->>>>>>> noctifab/task-US-001-TASK-004-worker
->>>>>>> noctifab/task-US-001-TASK-003-worker
             store = Store()
 
             self.assertEqual(replay_aof(path, store), 2)
