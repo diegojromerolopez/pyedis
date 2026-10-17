@@ -12,4 +12,5 @@ src/commands.py
 src/main.py
 src/persistence.py
 src/resp.py
+src/server.py
 src/store.py
