@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 from typing import Any
 from src.store import Store
-from src.handlers.geospatial.geoadd import execute_geoadd
 
 
 class AOFLogger:
