@@ -1,10 +1,13 @@
-"""In-memory key-value storage with active/lazy expiration and DI clock."""import asyncio
+"""In-memory key-value storage with active/lazy expiration and DI clock."""
+
+import asyncio
 import fnmatch
 import time
 from collections.abc import Callable
 from typing import Any
 
 Clock = Callable[[], float]
+
 
 class Store:
     def __init__(self, clock: Clock = time.time) -> None:
@@ -54,7 +57,12 @@ class Store:
         return self._strings.get(key)
 
     def set(
-        self, key: str, value: str, expire_at: float | None = None, nx: bool = False, xx: bool = False
+        self,
+        key: str,
+        value: str,
+        expire_at: float | None = None,
+        nx: bool = False,
+        xx: bool = False,
     ) -> bool:
         self._is_expired(key)
         exists = key in self._strings
@@ -81,7 +89,10 @@ class Store:
         count = 0
         for k in keys:
             if not self._is_expired(k):
-                if any(k in d for d in (self._strings, self._lists, self._hashes, self._sets, self._zsets)):
+                if any(
+                    k in d
+                    for d in (self._strings, self._lists, self._hashes, self._sets, self._zsets)
+                ):
                     count += 1
         return count
 
