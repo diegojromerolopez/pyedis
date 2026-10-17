@@ -4,7 +4,6 @@ import asyncio
 import fnmatch
 import time
 from collections.abc import Callable
-from typing import Any
 
 Clock = Callable[[], float]
 

@@ -28,7 +28,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         writer.write(b"PING\r\n")
         await writer.drain()
         response = await reader.read(100)
-        self.assertEqual(response, b"+OK\r\n")
+        self.assertEqual(response, b"+PONG\r\n")
         writer.close()
         await writer.wait_closed()
 
