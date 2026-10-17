@@ -1,0 +1,29 @@
+Metadata-Version: 2.4
+Name: pyedis
+Version: 0.1.0
+Summary: Native Redis RESP Key-Value Store in Python 3.14
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Provides-Extra: dev
+Requires-Dist: redis>=5.0; extra == "dev"
+Requires-Dist: ruff>=0.8; extra == "dev"
+Requires-Dist: mypy>=1.13; extra == "dev"
+Requires-Dist: coverage>=7.6; extra == "dev"
+Dynamic: license-file
+
+# pyedis: Native Redis RESP Key-Value Store in Python
+
+`pyedis` is a high-performance, in-memory key-value store with a native Redis wire-protocol (RESP2/RESP3) API exposed over TCP (default port 6379), written in modern Python with strict static typing (`mypy --strict src`) and standard library tooling.
+
+## Quick Start
+```bash
+make install
+make run
+```
+
+## Features
+- Standard RESP2/RESP3 wire protocol compatibility.
+- Modern Python standard library TCP async engine (`asyncio`).
+- AOF persistence with absolute unix epoch timestamps.
+- Zero third-party dependencies outside development tools.
