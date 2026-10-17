@@ -14,8 +14,16 @@ src/persistence.py
 src/resp.py
 src/server.py
 src/store.py
+<<<<<<< HEAD
 src/handlers/scripting/__init__.py
 src/handlers/scripting/eval_cmd.py
 src/handlers/scripting/evalsha_cmd.py
 src/handlers/scripting/lua_evaluator.py
 src/handlers/scripting/script_cache.py
+=======
+src/handlers/hll/__init__.py
+src/handlers/hll/hll_codec.py
+src/handlers/hll/pfadd.py
+src/handlers/hll/pfcount.py
+src/handlers/hll/pfmerge.py
+>>>>>>> noctifab/task-US-008-TASK-006-worker
