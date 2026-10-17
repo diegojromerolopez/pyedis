@@ -18,6 +18,12 @@ class TestPersistence(unittest.TestCase):
             logger = AOFLogger(aof_file, fsync=False)
             logger.log_mutation({"op": "SET", "key": "k1", "value": "v1", "expire_at": None})
 
+            restored = Store()
+            replayed = replay_aof(aof_file, restored)
+
+            self.assertEqual(replayed, 1)
+            self.assertEqual(restored.get("k1"), "v1")
+
 class TestAOFLogger(unittest.TestCase):
     def test_log_mutation_creates_parent_and_appends_json_lines(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
