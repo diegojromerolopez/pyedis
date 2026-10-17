@@ -14,7 +14,7 @@ run:
 	uv run python -m src.main
 
 test:
-	uv run python -m unittest discover -s tests -v
+	python3 -m unittest discover -s tests -v
 
 lint:
 	uv run ruff check src tests
