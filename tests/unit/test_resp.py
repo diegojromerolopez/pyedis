@@ -3,7 +3,6 @@
 import unittest
 from src.resp import (
     decode_resp_stream,
-    encode_array,
     encode_bulk_string,
     encode_error,
     encode_integer,
