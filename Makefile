@@ -3,11 +3,11 @@
 all: build
 
 build:
-	uv venv --seed .venv
+	uv venv --seed --clear .venv
 	uv pip install -e ".[dev]"
 
 install:
-	uv venv --seed .venv
+	uv venv --seed --clear .venv
 	uv pip install -e ".[dev]"
 
 run:
