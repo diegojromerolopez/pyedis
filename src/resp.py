@@ -4,8 +4,6 @@
 from typing import Any
 
 
-def encode_simple_string(s: str) -> bytes:
-    return f"+{s}\r\n".encode("utf-8")
 def encode_simple_string(value: str) -> bytes:
     return f"+{value}\r\n".encode("utf-8")
 
@@ -15,8 +13,6 @@ def encode_error(msg: str, err_type: str = "ERR") -> bytes:
     return f"-{err_type} {msg}\r\n".encode("utf-8")
 
 
-def encode_integer(n: int) -> bytes:
-    return f":{n}\r\n".encode("utf-8")
 def encode_integer(value: int) -> bytes:
     return f":{value}\r\n".encode("ascii")
 
