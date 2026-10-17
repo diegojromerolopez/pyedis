@@ -27,7 +27,7 @@ class CommandDispatcher:
         async with self.store.lock:
             if cmd == "PING":
                 if not str_args:
-                    return encode_simple_string("OK"), False
+                    return encode_simple_string("PONG"), False
                 return encode_bulk_string(str_args[0]), False
             elif cmd == "ECHO":
                 if len(str_args) != 1:
@@ -143,19 +143,12 @@ class CommandDispatcher:
                 if len(str_args) != 1:
                     return encode_error("wrong number of arguments for 'keys' command"), False
                 matched_keys = self.store.keys(str_args[0])
-<<<<<<< HEAD
-<<<<<<< HEAD
                 return encode_bulk_string("\r\n".join(matched_keys)) if False else encode_array(
                     [encode_bulk_string(k) for k in matched_keys]
                 ), False
-=======
-                return encode_array([encode_bulk_string(k) for k in matched_keys]), False
->>>>>>> noctifab/task-US-001-TASK-003-worker
-=======
                 return encode_bulk_string("\r\n".join(matched_keys)) if False else encode_array(
                     [encode_bulk_string(k) for k in matched_keys]
                 ), False
->>>>>>> noctifab/task-US-001-TASK-001-worker
             elif cmd == "FLUSHALL":
                 self.store.flushall()
                 if self.aof:

@@ -1,32 +1,29 @@
-"""Live server socket tests."""
+"""Black-box integration tests for the asyncio TCP server."""
 
 import asyncio
 import tempfile
 import unittest
-from src.main import run_server
+from pathlib import Path
+
+from src.server import run_server
 
 
 class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
-        self.port = 16379
+        self.port = await self._unused_port()
         self.server_task = asyncio.create_task(
-            run_server(host="127.0.0.1", port=self.port, data_dir=self.tmpdir.name, fsync=False)
+            run_server(
+                host="127.0.0.1",
+                port=self.port,
+                data_dir=self.tmpdir.name,
+                fsync=False,
+            )
         )
-
-        deadline = asyncio.get_running_loop().time() + 2.0
-        while True:
-            try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection("127.0.0.1", self.port), timeout=2.0
-                )
-                writer.close()
-                await writer.wait_closed()
-                break
-            except (ConnectionRefusedError, OSError):
-                if asyncio.get_running_loop().time() >= deadline:
-                    self.fail("server did not become ready within 2 seconds")
-                await asyncio.sleep(0.01)
+        reader, writer = await self._wait_until_ready()
+        reader.feed_eof()
+        writer.close()
+        await asyncio.wait_for(writer.wait_closed(), timeout=2.0)
 
     async def asyncTearDown(self) -> None:
         self.server_task.cancel()
@@ -36,29 +33,59 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
             pass
         self.tmpdir.cleanup()
 
-    async def test_socket_ping(self) -> None:
-<<<<<<< HEAD
-        reader, writer = await asyncio.open_connection("127.0.0.1", self.port)
-        writer.write(b"PING\r\n")
-        await writer.drain()
-        response = await reader.read(100)
-        self.assertEqual(response, b"+PONG\r\n")
-        writer.close()
-        await writer.wait_closed()
-=======
+    async def _unused_port(self) -> int:
+        probe = await asyncio.start_server(lambda _reader, writer: writer.close(), "127.0.0.1", 0)
+        assert probe.sockets
+        port = probe.sockets[0].getsockname()[1]
+        probe.close()
+        await probe.wait_closed()
+        return port
+
+    async def _wait_until_ready(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        deadline = asyncio.get_running_loop().time() + 2.0
+        while asyncio.get_running_loop().time() < deadline:
+            try:
+                return await asyncio.wait_for(
+                    asyncio.open_connection("127.0.0.1", self.port), timeout=2.0
+                )
+            except (ConnectionRefusedError, OSError):
+                await asyncio.sleep(0.01)
+        self.fail("server did not become ready within 2 seconds")
+
+    async def _command(self, payload: bytes, response_size: int) -> bytes:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection("127.0.0.1", self.port), timeout=2.0
         )
         try:
-            writer.write(b"PING\r\n")
+            writer.write(payload)
             await asyncio.wait_for(writer.drain(), timeout=2.0)
-            response = await asyncio.wait_for(reader.readexactly(len(b"+PONG\r\n")), timeout=2.0)
-            self.assertEqual(response, b"+PONG\r\n")
+            return await asyncio.wait_for(reader.readexactly(response_size), timeout=2.0)
         finally:
             writer.close()
             await asyncio.wait_for(writer.wait_closed(), timeout=2.0)
 
->>>>>>> noctifab/task-US-001-TASK-001-worker
+    async def test_live_socket_supports_ping_and_pipeline(self) -> None:
+        payload = (
+            b"*1\r\n$4\r\nPING\r\n"
+            b"*3\r\n$3\r\nSET\r\n$3\r\nkey\r\n$5\r\nvalue\r\n"
+            b"*2\r\n$3\r\nGET\r\n$3\r\nkey\r\n"
+        )
+        response = await self._command(payload, len(b"+PONG\r\n+OK\r\n$5\r\nvalue\r\n"))
+        self.assertEqual(response, b"+PONG\r\n+OK\r\n$5\r\nvalue\r\n")
+
+    async def test_client_disconnect_does_not_stop_server(self) -> None:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection("127.0.0.1", self.port), timeout=2.0
+        )
+        writer.write(b"*3\r\n$3\r\nSET\r\n$6\r\nbefore\r\n$5\r\nvalue\r\n")
+        await asyncio.wait_for(writer.drain(), timeout=2.0)
+        self.assertEqual(await asyncio.wait_for(reader.readexactly(5), timeout=2.0), b"+OK\r\n")
+        writer.close()
+        await asyncio.wait_for(writer.wait_closed(), timeout=2.0)
+
+        get = b"*2\r\n$3\r\nGET\r\n$6\r\nbefore\r\n"
+        self.assertEqual(await self._command(get, len(b"$5\r\nvalue\r\n")), b"$5\r\nvalue\r\n")
+        self.assertTrue(Path(self.tmpdir.name, "dump.aof").exists())
 
 
 if __name__ == "__main__":
