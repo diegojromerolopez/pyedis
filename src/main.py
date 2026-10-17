@@ -1,4 +1,5 @@
 """Asyncio TCP server entrypoint and signal handlers."""
+
 import asyncio
 import os
 import sys
@@ -7,7 +8,10 @@ from src.persistence import AOFLogger, replay_aof
 from src.resp import decode_resp_stream, encode_error
 from src.store import Store
 
-async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, dispatcher: CommandDispatcher) -> None:
+
+async def handle_client(
+    reader: asyncio.StreamReader, writer: asyncio.StreamWriter, dispatcher: CommandDispatcher
+) -> None:
     buffer = bytearray()
     try:
         while True:
@@ -29,7 +33,10 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
         writer.close()
         await writer.wait_closed()
 
-async def run_server(host: str = "0.0.0.0", port: int = 6379, data_dir: str = "./data", fsync: bool = True) -> None:
+
+async def run_server(
+    host: str = "0.0.0.0", port: int = 6379, data_dir: str = "./data", fsync: bool = True
+) -> None:
     os.makedirs(data_dir, exist_ok=True)
     aof_path = os.path.join(data_dir, "dump.aof")
     store = Store()
@@ -41,6 +48,7 @@ async def run_server(host: str = "0.0.0.0", port: int = 6379, data_dir: str = ".
     async with server:
         await server.serve_forever()
 
+
 def main() -> None:
     port = int(os.environ.get("PORT", 6379))
     data_dir = os.environ.get("PYEDIS_DATA_DIR", "./data")
@@ -49,6 +57,7 @@ def main() -> None:
         asyncio.run(run_server(port=port, data_dir=data_dir, fsync=fsync))
     except KeyboardInterrupt:
         print("pyedis: shutting down gracefully")
+
 
 if __name__ == "__main__":
     main()

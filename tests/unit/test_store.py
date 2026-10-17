@@ -1,6 +1,8 @@
 """In-memory store operations tests."""
+
 import unittest
 from src.store import Store
+
 
 class TestStore(unittest.TestCase):
     def setUp(self) -> None:
@@ -21,6 +23,7 @@ class TestStore(unittest.TestCase):
         self.assertEqual(self.store.incr_by("counter", 1), 1)
         self.assertEqual(self.store.incr_by("counter", 5), 6)
         self.assertEqual(self.store.incr_by("counter", -2), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

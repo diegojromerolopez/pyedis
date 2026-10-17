@@ -1,7 +1,9 @@
 """Command dispatcher tests."""
+
 import unittest
 from src.commands import CommandDispatcher
 from src.store import Store
+
 
 class TestCommands(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
@@ -18,6 +20,7 @@ class TestCommands(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resp, b"+OK\r\n")
         resp, _ = await self.dispatcher.dispatch([b"GET", b"foo"])
         self.assertEqual(resp, b"$3\r\nbar\r\n")
+
 
 if __name__ == "__main__":
     unittest.main()
