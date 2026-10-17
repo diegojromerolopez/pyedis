@@ -1,13 +1,7 @@
-FROM alpine:3.21
-
-# Install Python 3, pip, make, redis (for redis-cli), bash, and curl
-RUN apk add --no-cache \
-    python3 \
-    py3-pip \
-    make \
-    redis \
-    bash \
-    curl \
-    git
-
+FROM python:3.12-alpine
+RUN apk add --no-cache bash redis
 WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+CMD ["bash", "tests/e2e/run_tests.sh"]
