@@ -1,8 +1,10 @@
 """Live server socket tests."""
+
 import asyncio
 import tempfile
 import unittest
 from src.main import run_server
+
 
 class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
@@ -29,6 +31,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response, b"+OK\r\n")
         writer.close()
         await writer.wait_closed()
+
 
 if __name__ == "__main__":
     unittest.main()
