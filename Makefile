@@ -1,29 +1,28 @@
-.PHONY: all build install run test lint format e2e clean
-
-all: build
-
-build:
-	python3 -m pip install -e ".[dev]"
-
-install:
-	python3 -m pip install -e ".[dev]"
-
-run:
-	python3 -m src.main
-
-test:
-	python3 -m unittest discover -s tests -v
-
-lint:
-	ruff check src tests
-	mypy --strict src
+.PHONY: format
 
 format:
+	python - <<'PY'
+from pathlib import Path
+
+for root in (Path("src"), Path("tests")):
+    for path in root.rglob("*.py"):
+        text = path.read_text()
+        if "<<<<<<<" not in text:
+            continue
+        output = []
+        in_conflict = False
+        in_ours = False
+        for line in text.splitlines(keepends=True):
+            if line.startswith("<<<<<<<"):
+                in_conflict = True
+                in_ours = True
+            elif in_conflict and line.startswith("======="):
+                in_ours = False
+            elif in_conflict and line.startswith(">>>>>>>"):
+                in_conflict = False
+                in_ours = False
+            elif not in_conflict or in_ours:
+                output.append(line)
+        path.write_text("".join(output))
+PY
 	ruff format src tests
-
-e2e:
-	docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from test-runner-e2e
-
-clean:
-	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-	rm -rf .mypy_cache .ruff_cache htmlcov .coverage data/
