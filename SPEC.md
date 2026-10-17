@@ -255,8 +255,36 @@ if __name__ == "__main__":
 - **Runtime:** Standard Python 3.14+ library (`asyncio`, `dataclass`, `os`, `sys`, `time`, `typing`, `pathlib`, `json`, `signal`, `fnmatch`). No external web frameworks.
 - **Dev:** `redis>=5.0`, `ruff>=0.8`, `mypy>=1.13`, `coverage>=7.6`. (NO `pytest`).
 - **Testing Framework Rule (MANDATORY):** Tests MUST NOT use `pytest` or any third-party test framework under any circumstances. All unit and integration tests MUST be written using Python's standard library `unittest` framework (using `unittest.TestCase`, `unittest.IsolatedAsyncioTestCase` for async tests, and `unittest.mock`). All test modules must be executable via `python3 -m unittest discover -s tests`.
-- **`pyproject.toml` Toolchain Configuration (MANDATORY):** Generators MUST emit a `pyproject.toml` containing exactly the following tool sections — no deviations:
+- **Toolchain & Virtual Environment Manager:** The project uses `uv` for fast, hermetic package and virtual environment management (`uv venv --seed .venv && uv pip install -e ".[dev]"`).
+- **`pyproject.toml` Toolchain Configuration (MANDATORY):** Generators MUST emit a valid PEP 621 `pyproject.toml` containing complete build-system, project metadata, dependencies, and tool configurations — no deviations:
   ```toml
+  [build-system]
+  requires = ["setuptools>=61.0"]
+  build-backend = "setuptools.build_meta"
+
+  [project]
+  name = "pyedis"
+  version = "0.1.0"
+  description = "A lightweight in-memory RESP key-value store with durability."
+  readme = "README.md"
+  requires-python = ">=3.12"
+  dependencies = []
+
+  [project.optional-dependencies]
+  dev = [
+      "redis>=5.0",
+      "ruff>=0.8",
+      "mypy>=1.13",
+      "coverage>=7.6",
+  ]
+
+  [project.scripts]
+  pyedis = "src.main:main"
+
+  [tool.setuptools.packages.find]
+  where = ["."]
+  include = ["src*"]
+
   [tool.mypy]
   strict = true
   python_version = "3.12"
@@ -277,27 +305,28 @@ Every target below is REQUIRED. The Makefile MUST use these exact commands — d
 .PHONY: install run test lint format e2e clean
 
 install:
-	python3 -m pip install -e ".[dev]"
+	uv venv --seed .venv
+	uv pip install -e ".[dev]"
 
 run:
-	python3 -m src.main
+	uv run python -m src.main
 
 test:
-	python3 -m unittest discover -s tests -v
+	uv run python -m unittest discover -s tests -v
 
 lint:
-	ruff check src tests
-	mypy --strict src
+	uv run ruff check src tests
+	uv run mypy --strict src
 
 format:
-	ruff format src tests
+	uv run ruff format src tests
 
 e2e:
 	docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from test-runner-e2e
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-	rm -rf .mypy_cache .ruff_cache htmlcov .coverage
+	rm -rf .venv .mypy_cache .ruff_cache htmlcov .coverage
 ```
 Note: All E2E testing tools (including `redis-cli`) run strictly inside the containerized test runner service; NO host system package installation is required.
 
@@ -316,7 +345,7 @@ A GitHub Actions CI workflow MUST be configured in `.github/workflows/ci.yml` th
 - **Trigger Strategy:** Executes automatically on **every push** to any branch (`on: push`) as well as on all pull requests (`on: pull_request`).
 - **Automated Verification Pipeline:**
   1. **Checkout & Python Setup:** Checks out the codebase and provisions Python (3.12+ / 3.14).
-  2. **Dependency Installation:** Installs runtime and development dependencies cleanly (`make install` or `pip install -r requirements.txt`).
+  2. **Dependency Installation:** Installs runtime and development dependencies cleanly via `uv` (`make install` or `uv pip install -e ".[dev]"`).
   3. **Lint & Static Type Verification:** Executes `make lint` (`ruff check src tests` and `mypy --strict src`) on a best-effort basis (non-blocking for intermediate development; finalized in the final hardening user story).
   4. **Unit & Integration Test Execution:** Executes `make test` (`python3 -m unittest discover -s tests -v`), verifying all unit and integration test suites pass with 100% success rate.
   5. **Containerized E2E Black-Box Test Execution:** Executes `make e2e` (`docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from test-runner-e2e`), ensuring the end-to-end black-box CLI test suite against the live containerized server succeeds completely.
@@ -787,7 +816,7 @@ Generators MUST write complete, production-grade documentation across `README.md
 The documentation must detail:
 - **System Requirements:** Python 3.10+ / 3.14+, Docker (for containerized E2E testing).
 - **Installation Instructions:**
-  - Standard `pip` installation: `pip install -e .` or `pip install -r requirements.txt`.
+  - Standard `uv` installation: `uv venv --seed .venv && uv pip install -e ".[dev]"`.
   - Development installation via Makefile: `make install`.
 - **Server Execution:**
   - Running via CLI: `python3 -m src.main` or `make run`.
